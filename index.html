@@ -76,14 +76,30 @@
     </div>
   </div>
 
+  <!-- DOSSIER FOTO -->
+  <div class="screen" id="s-dossier-photo">
+    <div class="screen-inner centered">
+      <button class="back-btn" onclick="go('s-lobby')" style="align-self:flex-start;">← Terug</button>
+      <div class="section-title">Jouw foto</div>
+      <div class="section-sub">Voor Ronde 2 (Unmasked) — kies een duidelijke foto van je gezicht. Ze wordt lokaal verkleind voordat ze verstuurd wordt.</div>
+      <div class="photo-picker" id="photo-picker" onclick="document.getElementById('photo-input').click()">
+        <span id="photo-picker-icon">📷</span>
+        <img id="photo-preview" style="display:none;" />
+      </div>
+      <input type="file" accept="image/*" capture="user" id="photo-input" style="display:none;" onchange="handlePhotoSelected(event)" />
+      <button class="btn" style="margin-top:28px;" onclick="confirmPhotoAndContinue()">Volgende →</button>
+      <button class="btn ghost" onclick="skipPhotoAndContinue()">Sla over (gebruik avatar)</button>
+    </div>
+  </div>
+
   <!-- DOSSIER -->
   <div class="screen" id="s-dossier">
     <div class="screen-inner">
-      <button class="back-btn" onclick="go('s-lobby')">← Terug</button>
+      <button class="back-btn" onclick="go('s-dossier-photo')">← Terug</button>
       <div class="section-title">Jouw dossier</div>
       <div class="section-sub">Beantwoord eerlijk — hoe beter je invult, hoe leuker de avond.</div>
       <div class="progress-bar"><div class="progress-fill" id="dossier-progress" style="width:20%"></div></div>
-      <div id="q-counter" class="label-sm">Vraag 1 van 5</div>
+      <div id="q-counter" class="label-sm">Vraag 1 van 6</div>
       <div id="q-text" class="q-text">Ik word chagrijnig van:</div>
       <textarea placeholder="Typ je antwoord..." id="q-answer"></textarea>
       <button class="btn" id="dossier-next-btn" style="margin-top:16px;" onclick="nextQ()">Volgende →</button>

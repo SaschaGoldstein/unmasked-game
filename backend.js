@@ -123,6 +123,13 @@ class LocalBackend {
     });
   }
 
+  async submitPhoto(code, playerId, dataUrl) {
+    return this._mutate(code, (lobby) => {
+      const p = lobby.players.find(p => p.id === playerId);
+      if (p) p.photoDataUrl = dataUrl;
+    });
+  }
+
   async setPhase(code, phase, extra = {}) {
     return this._mutate(code, (lobby) => { lobby.phase = phase; Object.assign(lobby, extra); });
   }
@@ -197,6 +204,15 @@ class FirebaseBackend {
     const lobby = snap.data();
     const p = lobby.players.find(p => p.id === playerId);
     if (p) { p.dossierAnswers = answers; p.dossierDone = true; }
+    await this.fs.updateDoc(ref, { players: lobby.players });
+  }
+
+  async submitPhoto(code, playerId, dataUrl) {
+    const ref = await this._doc(code);
+    const snap = await this.fs.getDoc(ref);
+    const lobby = snap.data();
+    const p = lobby.players.find(p => p.id === playerId);
+    if (p) p.photoDataUrl = dataUrl;
     await this.fs.updateDoc(ref, { players: lobby.players });
   }
 

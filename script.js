@@ -57,19 +57,33 @@ const WHOAMI_BANK = [
   { clues: ['Onthoudt verjaardagen van bijna iedereen.', 'Heeft een la vol elastiekjes en losse batterijen.', 'Kan niet tegen ongelijke stapels.'], player: 'Nina' },
 ];
 
-const DOSSIER_QS = [
+// De eerste 5 vragen voeden Ronde 1 (Quick Fire) en Ronde 4 (Wie Ben Ik).
+// De laatste vraag is een bekentenis en voedt alleen Ronde 3 (Verhoor).
+const PREFERENCE_QS = [
   'Ik word chagrijnig van:',
   'De mooiste plek op de wereld waar ik ben geweest:',
   'Ik geef het liefst geld uit aan:',
   'Dit heb ik het laatste gegoogled:',
   'De beste manier om het weekend te beginnen:',
 ];
+const CONFESSION_Q = 'Beken hier iets kleins (een leugentje, iets stiekems, een onschuldig grensgeval):';
+const DOSSIER_QS = [...PREFERENCE_QS, CONFESSION_Q];
+
+// Sjablonen om Ronde 4-aanwijzingen te bouwen uit iemands eigen dossierantwoorden.
+const R4_CLUE_TEMPLATES = {
+  'Ik word chagrijnig van:': (a) => `Wordt chagrijnig van: ${a}`,
+  'De mooiste plek op de wereld waar ik ben geweest:': (a) => `De mooiste plek die deze persoon ooit bezocht: ${a}`,
+  'Ik geef het liefst geld uit aan:': (a) => `Geeft het liefst geld uit aan: ${a}`,
+  'Dit heb ik het laatste gegoogled:': (a) => `Zocht laatst op: "${a}"`,
+  'De beste manier om het weekend te beginnen:': (a) => `Begint het weekend het liefst met: ${a}`,
+};
 
 let dossierQ = 0;
+let pendingPhotoDataUrl = null;
 let r1Q = 0, r1Score = 0, r1Timer = null, r1Time = 5, r1Answered = false, r1Questions = [];
-let r2Q = 0, r2Score = 0, r2ZoomTimer = null, r2Answered = false;
-let r3Q = 0, r3Score = 0, r3Timer = null, r3Time = 6, r3Answered = false, r3Questions = [];
-let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Questions = [], r4Timeouts = [];
+let r2Q = 0, r2Score = 0, r2ZoomTimer = null, r2Answered = false, r2Photos = [], r2UsePlayers = PLAYERS;
+let r3Q = 0, r3Score = 0, r3Timer = null, r3Time = 6, r3Answered = false, r3Questions = [], r3UsePlayers = PLAYERS;
+let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Questions = [], r4Timeouts = [], r4UsePlayers = PLAYERS;
 
 // ── Multiplayer session ───────────────────
 // Backed by window.Backend (see backend.js). Session tracks who we are in
@@ -89,7 +103,7 @@ function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
 function pickSessionQuestions() {
-  const pools = DOSSIER_QS.map(q => {
+  const pools = PREFERENCE_QS.map(q => {
     const real = (latestLobby ? latestLobby.players : [])
       .filter(p => p.dossierAnswers && p.dossierAnswers[q] && p.dossierAnswers[q].trim())
       .map(p => ({ text: p.dossierAnswers[q], player: p.name }));
@@ -134,7 +148,8 @@ async function joinLobbyClick() {
     Session.code = res.code; Session.playerId = res.playerId; Session.isHost = false;
     subscribeLobby();
     resetDossierState();
-    go('s-dossier');
+    resetPhotoState();
+    go('s-dossier-photo');
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = 'block';
   }
@@ -182,7 +197,60 @@ async function hostStartGame() {
   go('s-round1-intro');
 }
 
-function goDossier() { resetDossierState(); go('s-dossier'); }
+function goDossier() { resetDossierState(); resetPhotoState(); go('s-dossier-photo'); }
+
+// ── Dossierfoto (Ronde 2) ──────────────────
+
+function resetPhotoState() {
+  pendingPhotoDataUrl = null;
+  const input = document.getElementById('photo-input');
+  if (input) input.value = '';
+  const img = document.getElementById('photo-preview');
+  if (img) { img.src = ''; img.style.display = 'none'; }
+  const icon = document.getElementById('photo-picker-icon');
+  if (icon) icon.style.display = 'block';
+}
+
+function fileToResizedDataUrl(file, maxSize = 280, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handlePhotoSelected(ev) {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const dataUrl = await fileToResizedDataUrl(file);
+  pendingPhotoDataUrl = dataUrl;
+  const img = document.getElementById('photo-preview');
+  img.src = dataUrl;
+  img.style.display = 'block';
+  document.getElementById('photo-picker-icon').style.display = 'none';
+}
+
+async function confirmPhotoAndContinue() {
+  if (pendingPhotoDataUrl && Session.code && Session.playerId) {
+    try { await Backend.submitPhoto(Session.code, Session.playerId, pendingPhotoDataUrl); } catch (e) { /* local demo mode */ }
+  }
+  go('s-dossier');
+}
+
+function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier'); }
 
 function resetDossierState() {
   dossierQ = 0;
@@ -304,21 +372,40 @@ function r1TimeUp(correct) {
 
 function nextR1Q() { r1Q++; if (r1Q < r1Questions.length) showR1Q(); else showScoreR1(); }
 
-function startRound2() { r2Q = 0; r2Score = 0; showR2Q(); go('s-round2-q'); }
+function pickRound2Photos() {
+  const lobbyPlayers = latestLobby ? latestLobby.players : [];
+  const withPhotos = lobbyPlayers.filter(p => p.photoDataUrl);
+  if (withPhotos.length >= 3) {
+    r2UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
+    return shuffle(withPhotos).map(p => ({ photo: p.photoDataUrl, player: p.name }));
+  }
+  r2UsePlayers = PLAYERS;
+  return shuffle(R2_PHOTOS);
+}
+
+function startRound2() { r2Q = 0; r2Score = 0; r2Photos = pickRound2Photos(); showR2Q(); go('s-round2-q'); }
 
 function showR2Q() {
   r2Answered = false;
   clearInterval(r2ZoomTimer);
-  const photo = R2_PHOTOS[r2Q];
-  document.getElementById('r2-qnum').textContent = `Foto ${r2Q + 1} van ${R2_PHOTOS.length}`;
-  document.getElementById('r2-progress').style.width = Math.round(((r2Q + 1) / R2_PHOTOS.length) * 100) + '%';
+  const photo = r2Photos[r2Q];
+  document.getElementById('r2-qnum').textContent = `Foto ${r2Q + 1} van ${r2Photos.length}`;
+  document.getElementById('r2-progress').style.width = Math.round(((r2Q + 1) / r2Photos.length) * 100) + '%';
   document.getElementById('r2-score').textContent = r2Score + ' pt';
   document.getElementById('r2-feedback').textContent = '';
   document.getElementById('r2-pts-flash').textContent = '';
   document.getElementById('r2-next-btn').style.display = 'none';
   document.getElementById('r2-zoom-hint').textContent = 'Foto zoomt uit... raad wie het is!';
   const photoEl = document.getElementById('r2-photo');
-  photoEl.textContent = photo.emoji;
+  if (photo.photo) {
+    photoEl.textContent = '';
+    photoEl.style.backgroundImage = `url(${photo.photo})`;
+    photoEl.style.backgroundSize = 'cover';
+    photoEl.style.backgroundPosition = 'center';
+  } else {
+    photoEl.style.backgroundImage = 'none';
+    photoEl.textContent = photo.emoji;
+  }
   photoEl.style.transition = 'none';
   photoEl.style.transform = 'scale(8)';
   const zoomBar = document.getElementById('r2-zoombar');
@@ -326,7 +413,7 @@ function showR2Q() {
   zoomBar.style.width = '0%';
   const wrap = document.getElementById('r2-players');
   wrap.innerHTML = '';
-  shuffle(PLAYERS).forEach(p => {
+  shuffle(r2UsePlayers).forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
@@ -395,7 +482,7 @@ function r2TimeUp(correct) {
   if (r2Q === R2_PHOTOS.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
 }
 
-function nextR2Q() { r2Q++; if (r2Q < R2_PHOTOS.length) showR2Q(); else showScoreR2(); }
+function nextR2Q() { r2Q++; if (r2Q < r2Photos.length) showR2Q(); else showScoreR2(); }
 
 function buildScoreboard(containerId, myScore, precomputed) {
   let all = precomputed;
@@ -423,9 +510,22 @@ function showScoreR2() { clearInterval(r2ZoomTimer); buildScoreboard('scoreboard
 
 // ── Ronde 3: Verhoor ──────────────────────
 
+function pickRound3Confessions() {
+  const lobbyPlayers = latestLobby ? latestLobby.players : [];
+  const real = lobbyPlayers
+    .filter(p => p.dossierAnswers && p.dossierAnswers[CONFESSION_Q] && p.dossierAnswers[CONFESSION_Q].trim())
+    .map(p => ({ text: `"${p.dossierAnswers[CONFESSION_Q].trim()}"`, player: p.name }));
+  if (real.length >= 2) {
+    r3UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
+    return shuffle(real).slice(0, Math.min(5, real.length));
+  }
+  r3UsePlayers = PLAYERS;
+  return shuffle(CONFESSIONS).slice(0, 5);
+}
+
 function startRound3() {
   r3Q = 0; r3Score = 0;
-  r3Questions = shuffle(CONFESSIONS).slice(0, 5);
+  r3Questions = pickRound3Confessions();
   showR3Q();
   go('s-round3-q');
 }
@@ -442,7 +542,7 @@ function showR3Q() {
   document.getElementById('r3-next-btn').style.display = 'none';
   const wrap = document.getElementById('r3-answers');
   wrap.innerHTML = '';
-  shuffle(PLAYERS).forEach(p => {
+  shuffle(r3UsePlayers).forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
@@ -505,9 +605,26 @@ function showScoreR3() { clearInterval(r3Timer); buildScoreboard('scoreboard-r3'
 
 // ── Ronde 4: Wie Ben Ik ───────────────────
 
+function pickRound4Riddles() {
+  const lobbyPlayers = latestLobby ? latestLobby.players : [];
+  const real = lobbyPlayers
+    .map(p => {
+      const entries = shuffle(Object.entries(p.dossierAnswers || {}).filter(([q, a]) => R4_CLUE_TEMPLATES[q] && a && a.trim()));
+      const clues = entries.slice(0, 3).map(([q, a]) => R4_CLUE_TEMPLATES[q](a.trim()));
+      return { clues, player: p.name };
+    })
+    .filter(r => r.clues.length === 3);
+  if (real.length >= 2) {
+    r4UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
+    return shuffle(real).slice(0, Math.min(5, real.length));
+  }
+  r4UsePlayers = PLAYERS;
+  return shuffle(WHOAMI_BANK).slice(0, 5);
+}
+
 function startRound4() {
   r4Q = 0; r4Score = 0;
-  r4Questions = shuffle(WHOAMI_BANK).slice(0, 5);
+  r4Questions = pickRound4Riddles();
   showR4Q();
   go('s-round4-q');
 }
@@ -537,7 +654,7 @@ function showR4Q() {
   r4Timeouts.push(setTimeout(() => { if (!r4Answered) addR4Clue(q.clues[2], 3); }, 10000));
   const wrap = document.getElementById('r4-players');
   wrap.innerHTML = '';
-  shuffle(PLAYERS).forEach(p => {
+  shuffle(r4UsePlayers).forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;

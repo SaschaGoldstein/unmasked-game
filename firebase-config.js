@@ -14,10 +14,10 @@
 // ─────────────────────────────────────────
 
 const FIREBASE_CONFIG = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT.firebaseapp.com',
-  projectId: 'YOUR_PROJECT',
-  storageBucket: 'YOUR_PROJECT.appspot.com',
-  messagingSenderId: 'YOUR_SENDER_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: 'AIzaSyBf1JrsNuTTEQES113QEJqPTKIw2l54z3A',
+  authDomain: 'unmasked-game-30706.firebaseapp.com',
+  projectId: 'unmasked-game-30706',
+  storageBucket: 'unmasked-game-30706.firebasestorage.app',
+  messagingSenderId: '395651008935',
+  appId: '1:395651008935:web:810b603c975311d96c0e82',
 };

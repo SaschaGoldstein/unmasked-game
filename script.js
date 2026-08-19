@@ -118,6 +118,8 @@ function subscribeLobby() {
     latestLobby = lobby;
     renderLobbyScreen(lobby);
     renderWaitingScreen(lobby);
+    renderHotOrNot(lobby);
+    renderVerhoor(lobby);
   });
 }
 
@@ -193,7 +195,7 @@ function renderWaitingScreen(lobby) {
 }
 
 async function hostStartGame() {
-  await Backend.setPhase(Session.code, 'round1-intro');
+  await GameOps.setPhase(Session.code, 'round1-intro');
   go('s-round1-intro');
 }
 
@@ -243,14 +245,62 @@ async function handlePhotoSelected(ev) {
   document.getElementById('photo-picker-icon').style.display = 'none';
 }
 
-async function confirmPhotoAndContinue() {
-  if (pendingPhotoDataUrl && Session.code && Session.playerId) {
-    try { await Backend.submitPhoto(Session.code, Session.playerId, pendingPhotoDataUrl); } catch (e) { /* local demo mode */ }
-  }
-  go('s-dossier');
+function confirmPhotoAndContinue() {
+  if (!pendingPhotoDataUrl) { go('s-dossier'); return; }
+  openMaskEditor();
 }
 
 function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier'); }
+
+// ── Masker plaatsen (Ronde 2) ──────────────
+
+let maskPos = { x: 50, y: 40, size: 34 };
+let maskDragging = false;
+
+function openMaskEditor() {
+  maskPos = { x: 50, y: 40, size: 34 };
+  document.getElementById('mask-editor-photo').src = pendingPhotoDataUrl;
+  document.getElementById('mask-size-slider').value = maskPos.size;
+  applyMaskPos();
+  initMaskDrag();
+  go('s-photo-mask');
+}
+
+function applyMaskPos() {
+  const el = document.getElementById('mask-overlay');
+  el.style.left = maskPos.x + '%';
+  el.style.top = maskPos.y + '%';
+  el.style.width = maskPos.size + '%';
+}
+
+function updateMaskSize(val) { maskPos.size = parseInt(val, 10); applyMaskPos(); }
+
+function maskPointerMove(ev) {
+  if (!maskDragging) return;
+  const rect = document.getElementById('mask-editor').getBoundingClientRect();
+  maskPos.x = Math.min(100, Math.max(0, ((ev.clientX - rect.left) / rect.width) * 100));
+  maskPos.y = Math.min(100, Math.max(0, ((ev.clientY - rect.top) / rect.height) * 100));
+  applyMaskPos();
+}
+
+function initMaskDrag() {
+  const overlay = document.getElementById('mask-overlay');
+  overlay.onpointerdown = (ev) => { maskDragging = true; overlay.setPointerCapture(ev.pointerId); };
+  overlay.onpointermove = maskPointerMove;
+  overlay.onpointerup = () => { maskDragging = false; };
+  overlay.onpointercancel = () => { maskDragging = false; };
+}
+
+async function confirmMaskAndContinue() {
+  if (Session.code && Session.playerId) {
+    try {
+      await GameOps.submitPhoto(Session.code, Session.playerId, {
+        url: pendingPhotoDataUrl, maskX: maskPos.x, maskY: maskPos.y, maskScale: maskPos.size,
+      });
+    } catch (e) { /* local demo mode */ }
+  }
+  go('s-dossier');
+}
 
 function resetDossierState() {
   dossierQ = 0;
@@ -287,7 +337,7 @@ function nextQ() {
 
 async function submitDossierAndWait() {
   if (Session.code && Session.playerId) {
-    try { await Backend.submitDossier(Session.code, Session.playerId, Session.dossierAnswers); } catch (e) { /* local demo mode without a lobby */ }
+    try { await GameOps.submitDossier(Session.code, Session.playerId, Session.dossierAnswers); } catch (e) { /* local demo mode without a lobby */ }
   }
   go('s-waiting');
 }
@@ -372,12 +422,20 @@ function r1TimeUp(correct) {
 
 function nextR1Q() { r1Q++; if (r1Q < r1Questions.length) showR1Q(); else showScoreR1(); }
 
+function maskSvgHtml() {
+  return `<svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg">
+    <path d="M2 25 Q2 5 30 8 Q50 2 70 8 Q98 5 98 25 Q98 40 70 38 Q50 44 30 38 Q2 40 2 25Z" fill="#0b0a13" stroke="#ff3d6b" stroke-width="1.5"/>
+    <ellipse cx="28" cy="24" rx="11" ry="7" fill="#f4f2fb"/>
+    <ellipse cx="72" cy="24" rx="11" ry="7" fill="#f4f2fb"/>
+  </svg>`;
+}
+
 function pickRound2Photos() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const withPhotos = lobbyPlayers.filter(p => p.photoDataUrl);
+  const withPhotos = lobbyPlayers.filter(p => p.photo && p.photo.url);
   if (withPhotos.length >= 3) {
     r2UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
-    return shuffle(withPhotos).map(p => ({ photo: p.photoDataUrl, player: p.name }));
+    return shuffle(withPhotos).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name }));
   }
   r2UsePlayers = PLAYERS;
   return shuffle(R2_PHOTOS);
@@ -402,6 +460,9 @@ function showR2Q() {
     photoEl.style.backgroundImage = `url(${photo.photo})`;
     photoEl.style.backgroundSize = 'cover';
     photoEl.style.backgroundPosition = 'center';
+    const m = photo.mask;
+    const maskHtml = m ? `<div class="r2-mask" style="left:${m.maskX}%;top:${m.maskY}%;width:${m.maskScale}%;">${maskSvgHtml()}</div>` : '';
+    photoEl.innerHTML = maskHtml;
   } else {
     photoEl.style.backgroundImage = 'none';
     photoEl.textContent = photo.emoji;
@@ -506,7 +567,108 @@ function buildScoreboard(containerId, myScore, precomputed) {
 }
 
 function showScoreR1() { clearInterval(r1Timer); buildScoreboard('scoreboard-r1', r1Score); go('s-round1-score'); }
-function showScoreR2() { clearInterval(r2ZoomTimer); buildScoreboard('scoreboard-r2', r1Score + r2Score); go('s-round2-score'); }
+function showScoreR2() {
+  clearInterval(r2ZoomTimer);
+  buildScoreboard('scoreboard-r2', r1Score + r2Score);
+  document.getElementById('r2score-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r2score-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+  go('s-round2-score');
+}
+
+// ── Hot or Not (bonusronde, geen score) ────
+
+function pickHotOrNotOrder() {
+  const lobbyPlayers = latestLobby ? latestLobby.players : [];
+  return lobbyPlayers.filter(p => p.photo && p.photo.url).map(p => p.id);
+}
+
+async function hostStartHotOrNot() {
+  const order = pickHotOrNotOrder();
+  if (order.length === 0) {
+    await GameOps.setPhase(Session.code, 'round3-intro');
+    go('s-round3-intro');
+    return;
+  }
+  const hon = { order, index: 0, targetId: order[0], votes: {} };
+  await GameOps.setHotOrNot(Session.code, hon);
+  await GameOps.setPhase(Session.code, 'hotornot');
+  go('s-hotornot');
+  // Don't wait on the subscription round-trip to populate the screen —
+  // render with what we just wrote so the host never sees a blank screen.
+  renderHotOrNot({ ...latestLobby, hotornot: hon, phase: 'hotornot' });
+}
+
+function renderHotOrNot(lobby) {
+  const photoEl = document.getElementById('hon-photo');
+  if (!photoEl) return;
+
+  if (lobby.phase === 'round3-intro' && document.getElementById('s-hotornot').classList.contains('active')) {
+    go('s-round3-intro');
+    return;
+  }
+  if (!lobby.hotornot || !document.getElementById('s-hotornot').classList.contains('active')) return;
+
+  const hon = lobby.hotornot;
+  const target = lobby.players.find(p => p.id === hon.targetId);
+  if (!target) return;
+
+  if (target.photo && target.photo.url) {
+    photoEl.style.backgroundImage = `url(${target.photo.url})`;
+    photoEl.style.backgroundSize = 'cover';
+    photoEl.style.backgroundPosition = 'center';
+    photoEl.textContent = '';
+  }
+  document.getElementById('hon-name').textContent = target.name;
+
+  const votes = hon.votes || {};
+  const myVote = votes[Session.playerId];
+  const isTarget = Session.playerId === hon.targetId;
+  const disabled = !!myVote || isTarget;
+  const hotBtn = document.getElementById('hon-btn-hot');
+  const notBtn = document.getElementById('hon-btn-not');
+  hotBtn.disabled = disabled; notBtn.disabled = disabled;
+  hotBtn.style.opacity = disabled ? '0.4' : '1';
+  notBtn.style.opacity = disabled ? '0.4' : '1';
+
+  const eligibleVoters = lobby.players.filter(p => p.id !== hon.targetId).length;
+  const votedCount = Object.keys(votes).length;
+  const showResults = !!myVote || isTarget || votedCount >= eligibleVoters;
+  document.getElementById('hon-results').style.display = showResults ? 'block' : 'none';
+  if (showResults) {
+    const hotCount = Object.values(votes).filter(v => v === 'hot').length;
+    const totalVotes = Object.values(votes).length;
+    const pct = totalVotes ? Math.round((hotCount / totalVotes) * 100) : 50;
+    document.getElementById('hon-bar').style.width = pct + '%';
+    document.getElementById('hon-tally').textContent = `${hotCount} 🔥 van ${totalVotes} stemmen`;
+  }
+
+  document.getElementById('hon-next-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('hon-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+}
+
+async function castHotOrNotVote(vote) {
+  if (!latestLobby || !latestLobby.hotornot) return;
+  const hon = latestLobby.hotornot;
+  const votes = { ...(hon.votes || {}), [Session.playerId]: vote };
+  await GameOps.voteHotOrNot(Session.code, hon.targetId, Session.playerId, vote);
+  renderHotOrNot({ ...latestLobby, hotornot: { ...hon, votes } });
+}
+
+async function nextHotOrNot() {
+  const hon = latestLobby.hotornot;
+  const nextIndex = hon.index + 1;
+  if (nextIndex >= hon.order.length) {
+    await GameOps.setPhase(Session.code, 'round3-intro');
+    go('s-round3-intro');
+    return;
+  }
+  const next = { order: hon.order, index: nextIndex, targetId: hon.order[nextIndex], votes: {} };
+  await GameOps.setHotOrNot(Session.code, next);
+  renderHotOrNot({ ...latestLobby, hotornot: next });
+}
+
+// TODO(round 3 rewrite): replaced with the real live-verhoor renderer next.
+function renderVerhoor(lobby) {}
 
 // ── Ronde 3: Verhoor ──────────────────────
 
@@ -727,7 +889,7 @@ async function showFinal() {
   const myScore = r1Score + r2Score + r3Score + r4Score;
   let all;
   if (Session.code && Session.playerId) {
-    try { await Backend.addScore(Session.code, Session.playerId, myScore); } catch (e) { /* ignore */ }
+    try { await GameOps.addScore(Session.code, Session.playerId, myScore); } catch (e) { /* ignore */ }
     const lobby = latestLobby || {};
     const players = lobby.players && lobby.players.length ? lobby.players : [{ id: Session.playerId, name: 'Jij', color: '#ff3d6b', score: myScore }];
     all = players.map(p => ({ name: p.id === Session.playerId ? `${p.name} (jij)` : p.name, pts: p.id === Session.playerId ? myScore : (p.score || 0), color: p.color, you: p.id === Session.playerId }))

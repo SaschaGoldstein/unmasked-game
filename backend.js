@@ -2,13 +2,18 @@
 //  Unmasked — backend.js
 //  Swappable multiplayer data layer.
 //
-//  Every backend implements the same interface:
+//  Core primitives every backend implements:
 //    createLobby(hostName, maxPlayers) -> { code, playerId }
 //    joinLobby(code, name)             -> { code, playerId }
 //    subscribe(code, cb)               -> unsubscribe()
-//    submitDossier(code, playerId, answers)
-//    setPhase(code, phase, extra)
-//    addScore(code, playerId, points)
+//    updateLobby(code, mutateFn)       -> read-modify-write the lobby doc
+//    submitVoice(code, playerId, dataUrl) / getVoice(code, playerId)
+//      — audio is too big for the main lobby doc, so it's stored separately.
+//
+//  Everything else (dossier answers, photos, scores, hot-or-not votes,
+//  verhoor state, ...) is implemented once in this file as free functions
+//  built on top of updateLobby(), so Local and Firebase never need their
+//  own copy of that logic — see "Game operations" below.
 //
 //  Today ACTIVE_BACKEND is LocalBackend (localStorage + BroadcastChannel —
 //  works across browser tabs on one device, good for testing without a
@@ -49,6 +54,7 @@ class LocalBackend {
   constructor() { this.channels = {}; this.localSubs = {}; }
 
   _key(code) { return `unmasked:lobby:${code}`; }
+  _voiceKey(code, playerId) { return `unmasked:voice:${code}:${playerId}`; }
 
   _read(code) {
     const raw = localStorage.getItem(this._key(code));
@@ -68,7 +74,7 @@ class LocalBackend {
     return this.channels[code];
   }
 
-  async _mutate(code, mutateFn) {
+  async updateLobby(code, mutateFn) {
     const lobby = this._read(code);
     if (!lobby) throw new Error('Lobby niet gevonden. Klopt de code?');
     mutateFn(lobby);
@@ -116,34 +122,19 @@ class LocalBackend {
     };
   }
 
-  async submitDossier(code, playerId, answers) {
-    return this._mutate(code, (lobby) => {
-      const p = lobby.players.find(p => p.id === playerId);
-      if (p) { p.dossierAnswers = answers; p.dossierDone = true; }
-    });
+  async submitVoice(code, playerId, dataUrl) {
+    localStorage.setItem(this._voiceKey(code, playerId), dataUrl);
   }
 
-  async submitPhoto(code, playerId, dataUrl) {
-    return this._mutate(code, (lobby) => {
-      const p = lobby.players.find(p => p.id === playerId);
-      if (p) p.photoDataUrl = dataUrl;
-    });
-  }
-
-  async setPhase(code, phase, extra = {}) {
-    return this._mutate(code, (lobby) => { lobby.phase = phase; Object.assign(lobby, extra); });
-  }
-
-  async addScore(code, playerId, points) {
-    return this._mutate(code, (lobby) => {
-      const p = lobby.players.find(p => p.id === playerId);
-      if (p) p.score = (p.score || 0) + points;
-    });
+  async getVoice(code, playerId) {
+    return localStorage.getItem(this._voiceKey(code, playerId));
   }
 }
 
 // ── FirebaseBackend: Firestore ──────────────────────────────────────────
-// Same interface as LocalBackend, backed by a `lobbies/{code}` document.
+// Same interface as LocalBackend. The lobby lives at `lobbies/{code}`;
+// voice recordings (too big for that single doc) live in the
+// `lobbies/{code}/voices/{playerId}` subcollection instead.
 // NOT wired in by default and not yet tested against a real project —
 // fill in firebase-config.js with real keys to activate it, then smoke-test
 // the full lobby → dossier → waiting → round flow before relying on it.
@@ -163,6 +154,7 @@ class FirebaseBackend {
   }
 
   async _doc(code) { await this._ready; return this.fs.doc(this.db, 'lobbies', code); }
+  async _voiceDoc(code, playerId) { await this._ready; return this.fs.doc(this.db, 'lobbies', code, 'voices', playerId); }
 
   async createLobby(hostName, maxPlayers) {
     await this._ready;
@@ -198,43 +190,32 @@ class FirebaseBackend {
     return () => unsub();
   }
 
-  async submitDossier(code, playerId, answers) {
+  async updateLobby(code, mutateFn) {
     const ref = await this._doc(code);
     const snap = await this.fs.getDoc(ref);
+    if (!snap.exists()) throw new Error('Lobby niet gevonden. Klopt de code?');
     const lobby = snap.data();
-    const p = lobby.players.find(p => p.id === playerId);
-    if (p) { p.dossierAnswers = answers; p.dossierDone = true; }
-    await this.fs.updateDoc(ref, { players: lobby.players });
+    mutateFn(lobby);
+    await this.fs.setDoc(ref, lobby);
+    return lobby;
   }
 
-  async submitPhoto(code, playerId, dataUrl) {
-    const ref = await this._doc(code);
+  async submitVoice(code, playerId, dataUrl) {
+    const ref = await this._voiceDoc(code, playerId);
+    await this.fs.setDoc(ref, { dataUrl });
+  }
+
+  async getVoice(code, playerId) {
+    const ref = await this._voiceDoc(code, playerId);
     const snap = await this.fs.getDoc(ref);
-    const lobby = snap.data();
-    const p = lobby.players.find(p => p.id === playerId);
-    if (p) p.photoDataUrl = dataUrl;
-    await this.fs.updateDoc(ref, { players: lobby.players });
-  }
-
-  async setPhase(code, phase, extra = {}) {
-    const ref = await this._doc(code);
-    await this.fs.updateDoc(ref, { phase, ...extra });
-  }
-
-  async addScore(code, playerId, points) {
-    const ref = await this._doc(code);
-    const snap = await this.fs.getDoc(ref);
-    const lobby = snap.data();
-    const p = lobby.players.find(p => p.id === playerId);
-    if (p) p.score = (p.score || 0) + points;
-    await this.fs.updateDoc(ref, { players: lobby.players });
+    return snap.exists() ? snap.data().dataUrl : null;
   }
 }
 
 // ── Backend selection ────────────────────────────────────────────────
-// FIREBASE_CONFIG lives in firebase-config.js (gitignored-friendly, kept
-// separate so pasting real keys never touches this file). Falls back to
-// LocalBackend whenever it's missing or still has placeholder values.
+// FIREBASE_CONFIG lives in firebase-config.js, kept separate so pasting
+// real keys never touches this file. Falls back to LocalBackend whenever
+// it's missing or still has placeholder values.
 
 const hasRealFirebaseConfig = typeof FIREBASE_CONFIG !== 'undefined'
   && FIREBASE_CONFIG
@@ -244,3 +225,84 @@ const hasRealFirebaseConfig = typeof FIREBASE_CONFIG !== 'undefined'
 const Backend = hasRealFirebaseConfig ? new FirebaseBackend(FIREBASE_CONFIG) : new LocalBackend();
 window.Backend = Backend;
 window.UNMASKED_BACKEND_MODE = hasRealFirebaseConfig ? 'firebase' : 'local';
+
+// ── Game operations ─────────────────────────────────────────────────
+// Built once on top of Backend.updateLobby(), shared by both backends.
+
+function findPlayer(lobby, playerId) { return lobby.players.find(p => p.id === playerId); }
+
+async function submitDossier(code, playerId, answers) {
+  return Backend.updateLobby(code, (lobby) => {
+    const p = findPlayer(lobby, playerId);
+    if (p) { p.dossierAnswers = answers; p.dossierDone = true; }
+  });
+}
+
+async function submitPhoto(code, playerId, photo) {
+  return Backend.updateLobby(code, (lobby) => {
+    const p = findPlayer(lobby, playerId);
+    if (p) p.photo = photo;
+  });
+}
+
+async function setPhase(code, phase, extra = {}) {
+  return Backend.updateLobby(code, (lobby) => { lobby.phase = phase; Object.assign(lobby, extra); });
+}
+
+async function addScore(code, playerId, points) {
+  return Backend.updateLobby(code, (lobby) => {
+    const p = findPlayer(lobby, playerId);
+    if (p) p.score = (p.score || 0) + points;
+  });
+}
+
+async function setHotOrNot(code, honState) {
+  return Backend.updateLobby(code, (lobby) => { lobby.hotornot = honState; });
+}
+
+async function voteHotOrNot(code, targetPlayerId, voterId, vote) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.hotornot || lobby.hotornot.targetId !== targetPlayerId) return;
+    if (!lobby.hotornot.votes) lobby.hotornot.votes = {};
+    lobby.hotornot.votes[voterId] = vote;
+  });
+}
+
+async function setVerhoor(code, verhoorState) {
+  return Backend.updateLobby(code, (lobby) => { lobby.verhoor = verhoorState; });
+}
+
+async function submitVerhoorGuess(code, playerId, guess) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.verhoor) return;
+    if (!lobby.verhoor.answers) lobby.verhoor.answers = {};
+    if (lobby.verhoor.answers[playerId]) return; // one guess per question
+    lobby.verhoor.answers[playerId] = { guess, at: Date.now() };
+  });
+}
+
+async function setBiecht(code, biechtState) {
+  return Backend.updateLobby(code, (lobby) => { lobby.biecht = biechtState; });
+}
+
+async function markVoiceReady(code, playerId) {
+  return Backend.updateLobby(code, (lobby) => {
+    const p = findPlayer(lobby, playerId);
+    if (p) p.voiceReady = true;
+  });
+}
+
+async function voteBiecht(code, targetPlayerId, voterId) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.biecht) return;
+    if (!lobby.biecht.votes) lobby.biecht.votes = {};
+    lobby.biecht.votes[voterId] = targetPlayerId;
+  });
+}
+
+window.GameOps = {
+  submitDossier, submitPhoto, setPhase, addScore,
+  setHotOrNot, voteHotOrNot,
+  setVerhoor, submitVerhoorGuess,
+  setBiecht, markVoiceReady, voteBiecht,
+};

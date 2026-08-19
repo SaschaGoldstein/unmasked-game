@@ -82,7 +82,6 @@ let dossierQ = 0;
 let pendingPhotoDataUrl = null;
 let r1Q = 0, r1Score = 0, r1Timer = null, r1Time = 5, r1Answered = false, r1Questions = [];
 let r2Q = 0, r2Score = 0, r2ZoomTimer = null, r2Answered = false, r2Photos = [], r2UsePlayers = PLAYERS;
-let r3Q = 0, r3Score = 0, r3Timer = null, r3Time = 6, r3Answered = false, r3Questions = [], r3UsePlayers = PLAYERS;
 let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Questions = [], r4Timeouts = [], r4UsePlayers = PLAYERS;
 
 // ── Multiplayer session ───────────────────
@@ -545,11 +544,25 @@ function r2TimeUp(correct) {
 
 function nextR2Q() { r2Q++; if (r2Q < r2Photos.length) showR2Q(); else showScoreR2(); }
 
-function buildScoreboard(containerId, myScore, precomputed) {
-  let all = precomputed;
+async function pushRoundScore(points) {
+  if (Session.code && Session.playerId && points) {
+    try { await GameOps.addScore(Session.code, Session.playerId, points); } catch (e) { /* ignore */ }
+  }
+}
+
+function liveStandings() {
+  if (!latestLobby || !latestLobby.players || !latestLobby.players.length) return null;
+  return latestLobby.players.map(p => ({
+    name: p.id === Session.playerId ? `${p.name} (jij)` : p.name,
+    pts: p.score || 0, color: p.color, you: p.id === Session.playerId,
+  })).sort((a, b) => b.pts - a.pts);
+}
+
+function buildScoreboard(containerId, myScoreFallback) {
+  let all = liveStandings();
   if (!all) {
     const others = PLAYERS.filter(p => p.name !== 'Sander').map(p => ({ name: p.name, pts: rand(4, 13), color: p.color }));
-    all = [{ name: 'Sander (jij)', pts: myScore, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
+    all = [{ name: 'Sander (jij)', pts: myScoreFallback, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
   }
   const max = all[0].pts || 1;
   const ranks = ['🥇', '🥈', '🥉', '4', '5', '6'];
@@ -566,9 +579,15 @@ function buildScoreboard(containerId, myScore, precomputed) {
     </div>`).join('');
 }
 
-function showScoreR1() { clearInterval(r1Timer); buildScoreboard('scoreboard-r1', r1Score); go('s-round1-score'); }
-function showScoreR2() {
+async function showScoreR1() {
+  clearInterval(r1Timer);
+  await pushRoundScore(r1Score);
+  buildScoreboard('scoreboard-r1', r1Score);
+  go('s-round1-score');
+}
+async function showScoreR2() {
   clearInterval(r2ZoomTimer);
+  await pushRoundScore(r2Score);
   buildScoreboard('scoreboard-r2', r1Score + r2Score);
   document.getElementById('r2score-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r2score-wait-msg').style.display = Session.isHost ? 'none' : 'block';
@@ -587,6 +606,7 @@ async function hostStartHotOrNot() {
   if (order.length === 0) {
     await GameOps.setPhase(Session.code, 'round3-intro');
     go('s-round3-intro');
+    renderVerhoor({ ...latestLobby, phase: 'round3-intro' });
     return;
   }
   const hon = { order, index: 0, targetId: order[0], votes: {} };
@@ -660,6 +680,7 @@ async function nextHotOrNot() {
   if (nextIndex >= hon.order.length) {
     await GameOps.setPhase(Session.code, 'round3-intro');
     go('s-round3-intro');
+    renderVerhoor({ ...latestLobby, phase: 'round3-intro' });
     return;
   }
   const next = { order: hon.order, index: nextIndex, targetId: hon.order[nextIndex], votes: {} };
@@ -667,103 +688,178 @@ async function nextHotOrNot() {
   renderHotOrNot({ ...latestLobby, hotornot: next });
 }
 
-// TODO(round 3 rewrite): replaced with the real live-verhoor renderer next.
-function renderVerhoor(lobby) {}
+// ── Ronde 3: Verhoor (live, host-gestuurd) ─
+// De hele ronde draait op lobby.verhoor, geschreven door de host en
+// door alle clients reactief gerenderd. De host is ook de enige die
+// scores toekent (tijdens de reveal) om dubbel tellen te vermijden.
 
-// ── Ronde 3: Verhoor ──────────────────────
+const VERHOOR_SECONDS = 30;
+let verhoorCountdownTimer = null;
+let lastSpokenVerhoorIndex = -1;
 
 function pickRound3Confessions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const real = lobbyPlayers
     .filter(p => p.dossierAnswers && p.dossierAnswers[CONFESSION_Q] && p.dossierAnswers[CONFESSION_Q].trim())
-    .map(p => ({ text: `"${p.dossierAnswers[CONFESSION_Q].trim()}"`, player: p.name }));
+    .map(p => ({ text: `"${p.dossierAnswers[CONFESSION_Q].trim()}"`, playerId: p.id, playerName: p.name }));
   if (real.length >= 2) {
-    r3UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
-    return shuffle(real).slice(0, Math.min(5, real.length));
+    return {
+      list: shuffle(real).slice(0, Math.min(5, real.length)),
+      players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
+    };
   }
-  r3UsePlayers = PLAYERS;
-  return shuffle(CONFESSIONS).slice(0, 5);
+  return {
+    list: shuffle(CONFESSIONS).slice(0, 5).map(c => ({ text: c.text, playerId: c.player, playerName: c.player })),
+    players: PLAYERS.map(p => ({ id: p.name, name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
+  };
 }
 
-function startRound3() {
-  r3Q = 0; r3Score = 0;
-  r3Questions = pickRound3Confessions();
-  showR3Q();
+function speakConfession(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/"/g, ''));
+  u.lang = 'nl-NL';
+  window.speechSynthesis.speak(u);
+}
+
+async function hostStartVerhoor() {
+  const picked = pickRound3Confessions();
+  const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
+  await GameOps.setVerhoor(Session.code, verhoor);
+  await GameOps.setPhase(Session.code, 'verhoor-active');
   go('s-round3-q');
+  renderVerhoor({ ...latestLobby, verhoor, phase: 'verhoor-active' });
 }
 
-function showR3Q() {
-  r3Answered = false;
-  clearInterval(r3Timer);
-  const q = r3Questions[r3Q];
-  document.getElementById('r3-qnum').textContent = `Bekentenis ${r3Q + 1} van ${r3Questions.length}`;
-  document.getElementById('r3-progress').style.width = Math.round(((r3Q + 1) / r3Questions.length) * 100) + '%';
-  document.getElementById('r3-score').textContent = r3Score + ' pt';
+function renderVerhoor(lobby) {
+  if (lobby.phase === 'verhoor-active' && document.getElementById('s-round3-intro').classList.contains('active')) {
+    go('s-round3-q');
+  }
+  document.getElementById('r3intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r3intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+
+  if (lobby.phase === 'round3-score' && document.getElementById('s-round3-q').classList.contains('active')) {
+    showScoreR3();
+    return;
+  }
+  if (!lobby.verhoor || !document.getElementById('s-round3-q').classList.contains('active')) return;
+
+  const v = lobby.verhoor;
+  const q = v.list[v.index];
+  document.getElementById('r3-qnum').textContent = `Bekentenis ${v.index + 1} van ${v.list.length}`;
+  document.getElementById('r3-progress').style.width = Math.round(((v.index + 1) / v.list.length) * 100) + '%';
   document.getElementById('r3-confession').textContent = q.text;
-  document.getElementById('r3-feedback').style.display = 'none';
-  document.getElementById('r3-next-btn').style.display = 'none';
+
+  if (v.index !== lastSpokenVerhoorIndex) {
+    lastSpokenVerhoorIndex = v.index;
+    if (Session.isHost) speakConfession(q.text);
+    clearInterval(verhoorCountdownTimer);
+    verhoorCountdownTimer = setInterval(() => tickVerhoorCountdown(), 200);
+    tickVerhoorCountdown();
+  }
+
+  const myGuess = (v.answers || {})[Session.playerId];
   const wrap = document.getElementById('r3-answers');
   wrap.innerHTML = '';
-  shuffle(r3UsePlayers).forEach(p => {
+  v.players.forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
+    if (v.revealed) {
+      if (p.id === q.playerId) d.classList.add('correct');
+      else if (myGuess && myGuess.guess === p.id) d.classList.add('wrong');
+    } else if (myGuess && myGuess.guess === p.id) {
+      d.classList.add('pending');
+    }
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    d.onclick = () => selectR3Answer(d, p.name, q.player);
+    if (!myGuess && !v.revealed) d.onclick = () => submitMyVerhoorGuess(p.id);
     wrap.appendChild(d);
   });
-  r3Time = 6;
-  document.getElementById('r3-timer-num').textContent = r3Time;
-  document.getElementById('r3-timer-arc').style.strokeDashoffset = '0';
-  r3Timer = setInterval(() => {
-    r3Time--;
-    document.getElementById('r3-timer-num').textContent = r3Time;
-    document.getElementById('r3-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - r3Time / 6));
-    if (r3Time <= 0) { clearInterval(r3Timer); if (!r3Answered) r3TimeUp(q.player); }
-  }, 1000);
-}
 
-function selectR3Answer(el, chosen, correct) {
-  if (r3Answered) return;
-  r3Answered = true;
-  clearInterval(r3Timer);
-  document.querySelectorAll('#r3-answers .player-btn').forEach(b => {
-    b.onclick = null;
-    if (b.querySelector('.pb-name').textContent === correct) b.classList.add('correct');
-  });
-  const fb = document.getElementById('r3-feedback');
-  fb.style.display = 'block';
-  if (chosen === correct) {
-    el.classList.add('correct');
-    const pts = Math.max(1, r3Time + 1);
-    r3Score += pts;
-    document.getElementById('r3-score').textContent = r3Score + ' pt';
-    fb.innerHTML = `<div class="result-correct">✓ Ontmaskerd! +${pts} punten</div>`;
-  } else {
-    el.classList.add('wrong');
-    fb.innerHTML = `<div class="result-wrong">✗ Fout — het was ${correct}</div>`;
+  const revealBox = document.getElementById('r3-reveal');
+  revealBox.style.display = v.revealed ? 'block' : 'none';
+  if (v.revealed) {
+    clearInterval(verhoorCountdownTimer);
+    const confessor = v.players.find(p => p.id === q.playerId);
+    const correctVoters = Object.entries(v.answers || {}).filter(([, a]) => a.guess === q.playerId).map(([voterId]) => v.players.find(p => p.id === voterId)).filter(Boolean);
+    const caught = correctVoters.length > 0;
+    document.getElementById('r3-reveal-card').innerHTML = `
+      <div class="card-title">Het was ${confessor ? confessor.name : '?'}!</div>
+      <div class="card-sub">${caught ? `Ontmaskerd door: ${correctVoters.map(p => p.name).join(', ')} (${confessor ? confessor.name : ''} verliest punten)` : 'Niemand raadde het op tijd — geen puntenverlies.'}</div>`;
+    const bonusBtn = document.getElementById('r3-bonus-btn');
+    bonusBtn.style.display = Session.isHost && !v.bonusGiven ? 'block' : 'none';
+    const nextBtn = document.getElementById('r3-next-btn');
+    nextBtn.style.display = Session.isHost ? 'block' : 'none';
+    nextBtn.textContent = v.index === v.list.length - 1 ? 'Bekijk scorebord →' : 'Volgende bekentenis →';
+    document.getElementById('r3-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   }
-  const nb = document.getElementById('r3-next-btn');
-  nb.style.display = 'block';
-  if (r3Q === r3Questions.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR3; }
 }
 
-function r3TimeUp(correct) {
-  r3Answered = true;
-  document.querySelectorAll('#r3-answers .player-btn').forEach(b => {
-    b.onclick = null;
-    if (b.querySelector('.pb-name').textContent === correct) b.classList.add('correct');
-  });
-  const fb = document.getElementById('r3-feedback');
-  fb.style.display = 'block';
-  fb.innerHTML = `<div class="result-wrong">⏱ Te laat! Het was ${correct}</div>`;
-  const nb = document.getElementById('r3-next-btn');
-  nb.style.display = 'block';
-  if (r3Q === r3Questions.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR3; }
+function tickVerhoorCountdown() {
+  const v = latestLobby && latestLobby.verhoor;
+  if (!v || v.revealed) { clearInterval(verhoorCountdownTimer); return; }
+  const elapsed = (Date.now() - v.questionStartAt) / 1000;
+  const remaining = Math.max(0, VERHOOR_SECONDS - elapsed);
+  document.getElementById('r3-timer-num').textContent = Math.ceil(remaining);
+  document.getElementById('r3-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / VERHOOR_SECONDS));
+  if (remaining <= 0) {
+    clearInterval(verhoorCountdownTimer);
+    if (Session.isHost) hostRevealVerhoor();
+  }
 }
 
-function nextR3Q() { r3Q++; if (r3Q < r3Questions.length) showR3Q(); else showScoreR3(); }
+async function submitMyVerhoorGuess(targetId) {
+  if (!latestLobby || !latestLobby.verhoor) return;
+  await GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId);
+  const v = latestLobby.verhoor;
+  const answers = { ...(v.answers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
+  renderVerhoor({ ...latestLobby, verhoor: { ...v, answers } });
+}
 
-function showScoreR3() { clearInterval(r3Timer); buildScoreboard('scoreboard-r3', r1Score + r2Score + r3Score); go('s-round3-score'); }
+async function hostRevealVerhoor() {
+  const v = latestLobby.verhoor;
+  if (!v || v.revealed) return;
+  const q = v.list[v.index];
+  const answers = v.answers || {};
+  for (const [voterId, a] of Object.entries(answers)) {
+    if (a.guess === q.playerId) {
+      const remaining = Math.max(0, VERHOOR_SECONDS - (a.at - v.questionStartAt) / 1000);
+      const pts = Math.max(1, Math.round(remaining) + 1);
+      await GameOps.addScore(Session.code, voterId, pts);
+    }
+  }
+  const caught = Object.values(answers).some(a => a.guess === q.playerId);
+  if (caught) await GameOps.addScore(Session.code, q.playerId, -3);
+  await GameOps.setVerhoor(Session.code, { ...v, revealed: true });
+  renderVerhoor({ ...latestLobby, verhoor: { ...v, revealed: true } });
+}
+
+async function awardVerhoorBonus() {
+  const v = latestLobby.verhoor;
+  if (!v || v.bonusGiven) return;
+  const q = v.list[v.index];
+  await GameOps.addScore(Session.code, q.playerId, 2);
+  await GameOps.setVerhoor(Session.code, { ...v, bonusGiven: true });
+  renderVerhoor({ ...latestLobby, verhoor: { ...v, bonusGiven: true } });
+}
+
+async function hostNextVerhoor() {
+  const v = latestLobby.verhoor;
+  const nextIndex = v.index + 1;
+  if (nextIndex >= v.list.length) {
+    await GameOps.setPhase(Session.code, 'round3-score');
+    showScoreR3();
+    return;
+  }
+  const next = { ...v, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
+  await GameOps.setVerhoor(Session.code, next);
+  renderVerhoor({ ...latestLobby, verhoor: next });
+}
+
+function showScoreR3() {
+  clearInterval(verhoorCountdownTimer);
+  buildScoreboard('scoreboard-r3', 0);
+  go('s-round3-score');
+}
 
 // ── Ronde 4: Wie Ben Ik ───────────────────
 
@@ -874,34 +970,41 @@ function r4TimeUp(correct) {
 
 function nextR4Q() { r4Q++; if (r4Q < r4Questions.length) showR4Q(); else showScoreR4(); }
 
-function showScoreR4() {
+async function showScoreR4() {
   clearInterval(r4Timer);
   r4Timeouts.forEach(t => clearTimeout(t));
-  buildScoreboard('scoreboard-r4', r1Score + r2Score + r3Score + r4Score);
+  await pushRoundScore(r4Score);
+  buildScoreboard('scoreboard-r4', r1Score + r2Score + r4Score);
   go('s-round4-score');
 }
 
 // ── Ronde 5: Eindstand ────────────────────
+// Elke ronde heeft haar punten al live doorgestuurd (Ronde 1/2/4 door de
+// speler zelf bij het scorebord, Ronde 3 door de host tijdens de reveal),
+// dus hier hoeft alleen de definitieve, echte stand nog getoond te worden.
 
-async function showFinal() {
+function showFinal() {
   clearInterval(r4Timer);
   r4Timeouts.forEach(t => clearTimeout(t));
-  const myScore = r1Score + r2Score + r3Score + r4Score;
-  let all;
-  if (Session.code && Session.playerId) {
-    try { await GameOps.addScore(Session.code, Session.playerId, myScore); } catch (e) { /* ignore */ }
-    const lobby = latestLobby || {};
-    const players = lobby.players && lobby.players.length ? lobby.players : [{ id: Session.playerId, name: 'Jij', color: '#ff3d6b', score: myScore }];
-    all = players.map(p => ({ name: p.id === Session.playerId ? `${p.name} (jij)` : p.name, pts: p.id === Session.playerId ? myScore : (p.score || 0), color: p.color, you: p.id === Session.playerId }))
-      .sort((a, b) => b.pts - a.pts);
-  } else {
+  let all = liveStandings();
+  if (!all) {
+    const myScore = r1Score + r2Score + r4Score;
     const others = PLAYERS.filter(p => p.name !== 'Sander').map(p => ({ name: p.name, pts: rand(14, 46), color: p.color }));
     all = [{ name: 'Sander (jij)', pts: myScore, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
   }
   renderFinalPodium(all);
-  buildScoreboard('scoreboard-final', myScore, all);
+  buildScoreboard('scoreboard-final');
+  renderMostUnmasked(all);
   go('s-round5-final');
   launchConfetti();
+}
+
+function renderMostUnmasked(all) {
+  const el = document.getElementById('most-unmasked');
+  if (!el || all.length < 2) { if (el) el.style.display = 'none'; return; }
+  const loser = all[all.length - 1];
+  el.style.display = 'block';
+  el.innerHTML = `<div class="card-title" style="color:var(--accent2);">🫣 Meest Ontmaskerd</div><div class="card-sub">${loser.name} — helemaal doorzien deze avond.</div>`;
 }
 
 function renderFinalPodium(all) {

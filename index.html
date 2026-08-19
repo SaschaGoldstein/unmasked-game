@@ -285,13 +285,14 @@
       <span class="round-intro-icon">🕵️</span>
       <div class="round-intro-title">Ronde 3</div>
       <div class="round-intro-accent">Verhoor</div>
-      <div class="round-intro-sub">Een anonieme bekentenis wordt voorgelezen. Wie is de dader? Wijs de schuldige aan voor de tijd om is.</div>
+      <div class="round-intro-sub">Een anonieme bekentenis wordt voorgelezen. De hele groep krijgt 30 seconden om de dader aan te wijzen — live, tegelijk.</div>
       <div class="rules">
-        <div class="rule-row"><div class="rule-icon">🤐</div><div class="rule-text">Een <strong>bekentenis</strong> verschijnt, anoniem</div></div>
-        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>6 seconden</strong> om te beslissen</div></div>
-        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Hoe sneller je de dader ontmaskert, <strong>hoe meer punten</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">🤐</div><div class="rule-text">Een <strong>bekentenis</strong> wordt voorgelezen, anoniem</div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>30 seconden</strong>, live voor iedereen zichtbaar</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Sneller raden = <strong>meer punten</strong> · de dader die ontmaskerd wordt <strong>verliest punten</strong></div></div>
       </div>
-      <button class="btn amber" style="margin-top:auto;" onclick="startRound3()">Start het verhoor →</button>
+      <button class="btn amber" id="r3intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartVerhoor()">Start het verhoor →</button>
+      <div class="label-sm" id="r3intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
 
@@ -300,7 +301,6 @@
     <div class="round-header">
       <div class="round-badge">Ronde 3</div>
       <div class="round-title">Verhoor</div>
-      <div class="round-score" id="r3-score">0 pt</div>
     </div>
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="r3-progress" style="width:20%"></div></div>
@@ -314,11 +314,15 @@
           <circle cx="36" cy="36" r="30" fill="none" stroke="#2e2d45" stroke-width="6"/>
           <circle id="r3-timer-arc" cx="36" cy="36" r="30" fill="none" stroke="#ff3d6b" stroke-width="6" stroke-dasharray="188.5" stroke-dashoffset="0" stroke-linecap="round"/>
         </svg>
-        <div class="timer-num" id="r3-timer-num">6</div>
+        <div class="timer-num" id="r3-timer-num">30</div>
       </div>
       <div class="accuse-list" id="r3-answers"></div>
-      <div id="r3-feedback" style="display:none;margin-top:4px;"></div>
-      <button class="btn" id="r3-next-btn" style="display:none;margin-top:8px;" onclick="nextR3Q()">Volgende bekentenis →</button>
+      <div id="r3-reveal" style="display:none;width:100%;">
+        <div class="card" id="r3-reveal-card"></div>
+        <button class="btn secondary" id="r3-bonus-btn" style="display:none;" onclick="awardVerhoorBonus()">+2 bonus voor beste toelichting</button>
+        <button class="btn amber" id="r3-next-btn" style="display:none;" onclick="hostNextVerhoor()">Volgende bekentenis →</button>
+        <div class="label-sm" id="r3-wait-reveal-msg" style="display:none;">Wachten op de host...</div>
+      </div>
     </div>
   </div>
 
@@ -400,6 +404,7 @@
       <div class="waiting-title">Eindstand</div>
       <div class="waiting-sub" style="margin-bottom:4px;">Vijf rondes verder — dit is wie jullie écht zijn.</div>
       <div class="final-podium" id="final-podium"></div>
+      <div class="card" style="width:100%;display:none;" id="most-unmasked"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-final"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" onclick="go('s-home')">Terug naar home</button>

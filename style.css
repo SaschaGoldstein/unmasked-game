@@ -328,6 +328,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .podium-name { font-size: 12px; font-weight: 600; margin-top: 8px; color: var(--text); }
 .podium-pts { font-size: 11px; color: var(--text-muted); }
 
+/* ── Ronde 5: Biecht-Finale ── */
+audio { border-radius: var(--radius-sm); }
+#biecht-record-timer { font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text); margin: 8px 0 16px; }
+
 /* ── Confetti ── */
 .confetti-piece { position: fixed; top: -20px; border-radius: 2px; z-index: 999; pointer-events: none; animation: confettiFall linear forwards; }
 @keyframes confettiFall {

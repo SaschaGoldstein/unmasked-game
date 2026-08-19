@@ -67,7 +67,9 @@ const PREFERENCE_QS = [
   'De beste manier om het weekend te beginnen:',
 ];
 const CONFESSION_Q = 'Beken hier iets kleins (een leugentje, iets stiekems, een onschuldig grensgeval):';
-const DOSSIER_QS = [...PREFERENCE_QS, CONFESSION_Q];
+const SONG_Q = 'Mijn lievelingsnummer is (artiest - titel):';
+const DRINK_Q = 'Mijn lievelingsdrankje is:';
+const DOSSIER_QS = [...PREFERENCE_QS, CONFESSION_Q, SONG_Q, DRINK_Q];
 
 // Sjablonen om Ronde 4-aanwijzingen te bouwen uit iemands eigen dossierantwoorden.
 const R4_CLUE_TEMPLATES = {
@@ -119,6 +121,10 @@ function subscribeLobby() {
     renderWaitingScreen(lobby);
     renderHotOrNot(lobby);
     renderVerhoor(lobby);
+    renderBiechtWaiting(lobby);
+    renderBiecht(lobby);
+    renderRound4Intro(lobby);
+    renderSoundtrack(lobby);
   });
 }
 
@@ -861,7 +867,71 @@ function showScoreR3() {
   go('s-round3-score');
 }
 
-// ── Ronde 4: Wie Ben Ik ───────────────────
+// ── Ronde 4: intro — kiest Soundtrack & Spirit (met Spotify) of ──
+// de tekst-aanwijzingen-fallback "Wie Ben Ik" (zonder Spotify) ──
+
+function goRound4Intro() {
+  go('s-round4-intro');
+  renderRound4Intro(latestLobby || {});
+}
+
+function renderRound4Intro(lobby) {
+  const introScreen = document.getElementById('s-round4-intro');
+  if (!introScreen) return;
+
+  const spotifyOk = typeof spotifyConfigured === 'function' && spotifyConfigured();
+  const connected = spotifyOk && spotifyIsConnected();
+  document.getElementById('r4intro-icon').textContent = spotifyOk ? '🎵' : '🎭';
+  document.getElementById('r4intro-accent').textContent = spotifyOk ? 'Soundtrack & Spirit' : 'Wie Ben Ik';
+  document.getElementById('r4intro-sub').textContent = spotifyOk
+    ? 'De host speelt ieders lievelingsnummer af. Wie is de eigenaar? En welk drankje hoort erbij?'
+    : 'Aanwijzingen over een speler verschijnen één voor één, van vaag naar duidelijk. Raad zo vroeg mogelijk.';
+  document.getElementById('r4intro-rules-soundtrack').style.display = spotifyOk ? 'block' : 'none';
+  document.getElementById('r4intro-rules-whoami').style.display = spotifyOk ? 'none' : 'block';
+  document.getElementById('r4intro-spotify-connect-btn').style.display = (Session.isHost && spotifyOk && !connected) ? 'block' : 'none';
+  document.getElementById('r4intro-spotify-status').textContent = !spotifyOk ? '' : (connected ? '✓ Verbonden met Spotify' : 'Nog niet verbonden — zonder Spotify gebruikt deze ronde tekstaanwijzingen.');
+  document.getElementById('r4intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r4intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+
+  if (introScreen.classList.contains('active')) {
+    if (lobby.phase === 'round4-whoami') { startRound4(); return; }
+    if (lobby.phase === 'soundtrack-active') { go('s-round4-soundtrack-q'); }
+  }
+}
+
+async function hostStartRound4() {
+  const soundtrack = await pickSoundtrack();
+  if (soundtrack) {
+    const state = { list: soundtrack.list, players: soundtrack.players, index: 0, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
+    await GameOps.setSoundtrack(Session.code, state);
+    await GameOps.setPhase(Session.code, 'soundtrack-active');
+    go('s-round4-soundtrack-q');
+    renderSoundtrack({ ...latestLobby, soundtrack: state, phase: 'soundtrack-active' });
+  } else {
+    await GameOps.setPhase(Session.code, 'round4-whoami');
+    startRound4();
+  }
+}
+
+async function pickSoundtrack() {
+  if (typeof spotifyConfigured !== 'function' || !spotifyConfigured() || !spotifyIsConnected()) return null;
+  const lobbyPlayers = latestLobby ? latestLobby.players : [];
+  const withSongs = lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim());
+  const list = [];
+  for (const p of withSongs) {
+    const track = await spotifySearchTrack(p.dossierAnswers[SONG_Q].trim());
+    if (track) {
+      list.push({
+        trackId: track.id, trackName: track.name, artist: track.artist, albumArt: track.albumArt,
+        playerId: p.id, playerName: p.name, drink: (p.dossierAnswers[DRINK_Q] || '').trim(),
+      });
+    }
+  }
+  if (list.length < 2) return null;
+  return { list: shuffle(list), players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })) };
+}
+
+// ── Ronde 4 (fallback): Wie Ben Ik ────────
 
 function pickRound4Riddles() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
@@ -976,6 +1046,405 @@ async function showScoreR4() {
   await pushRoundScore(r4Score);
   buildScoreboard('scoreboard-r4', r1Score + r2Score + r4Score);
   go('s-round4-score');
+}
+
+// ── Ronde 4 (met Spotify): Soundtrack & Spirit ────
+// Host-gestuurd en live gesynchroniseerd, zoals Ronde 3: alleen de host
+// speelt het fragment af (via de Spotify iFrame API) en kent scores toe,
+// alle spelers gokken mee op hun eigen scherm.
+
+let lastRenderedSoundtrackIndex = -1;
+let soundtrackPlayedForIndex = -1;
+
+function buildDrinkOptions(list, index) {
+  const correct = list[index];
+  const others = list.filter((_, i) => i !== index).map(t => t.drink).filter(Boolean);
+  const distractors = shuffle(others).slice(0, 2);
+  const opts = [...new Set([correct.drink || '(geen antwoord)', ...distractors])];
+  while (opts.length < 2) opts.push(opts.length === 1 ? 'Water' : 'Cola');
+  return shuffle(opts);
+}
+
+async function hostPlaySoundtrack() {
+  const st = latestLobby.soundtrack;
+  soundtrackPlayedForIndex = st.index;
+  document.getElementById('st-host-play-btn').style.display = 'none';
+  const track = st.list[st.index];
+  await playSpotifyTrack(track.trackId, 'st-embed');
+}
+
+function renderSoundtrack(lobby) {
+  if (lobby.phase === 'round4-score' && document.getElementById('s-round4-soundtrack-q').classList.contains('active')) {
+    showScoreR4();
+    return;
+  }
+  if (!lobby.soundtrack || !document.getElementById('s-round4-soundtrack-q').classList.contains('active')) return;
+
+  const st = lobby.soundtrack;
+  const track = st.list[st.index];
+  if (st.index !== lastRenderedSoundtrackIndex) {
+    lastRenderedSoundtrackIndex = st.index;
+    document.getElementById('st-embed').innerHTML = '';
+  }
+  document.getElementById('st-qnum').textContent = `Nummer ${st.index + 1} van ${st.list.length}`;
+  document.getElementById('st-progress').style.width = Math.round(((st.index + 1) / st.list.length) * 100) + '%';
+  document.getElementById('st-host-player').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('st-guest-wait').style.display = Session.isHost ? 'none' : 'block';
+  const alreadyPlayed = soundtrackPlayedForIndex === st.index;
+  document.getElementById('st-host-play-btn').style.display = (Session.isHost && st.stage === 'guessing' && !alreadyPlayed) ? 'block' : 'none';
+
+  const myOwnerGuess = (st.ownerAnswers || {})[Session.playerId];
+  const ownerWrap = document.getElementById('st-owner-players');
+  document.getElementById('st-stage-label').style.display = st.stage === 'guessing' ? 'block' : 'none';
+  ownerWrap.style.display = st.stage === 'guessing' ? 'grid' : 'none';
+  if (st.stage === 'guessing') {
+    ownerWrap.innerHTML = '';
+    st.players.forEach((p) => {
+      const d = document.createElement('div');
+      d.className = 'player-btn';
+      if (myOwnerGuess && myOwnerGuess.guess === p.id) d.classList.add('pending');
+      d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+      if (!myOwnerGuess) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
+      ownerWrap.appendChild(d);
+    });
+  }
+
+  document.getElementById('st-drink-stage').style.display = st.stage === 'drink' ? 'block' : 'none';
+  if (st.stage === 'drink') {
+    const owner = st.players.find(p => p.id === track.playerId);
+    document.getElementById('st-drink-label').textContent = `Bonus: welk drankje hoort bij ${owner ? owner.name : 'deze persoon'}?`;
+    const myDrinkGuess = (st.drinkAnswers || {})[Session.playerId];
+    const drinkWrap = document.getElementById('st-drink-options');
+    drinkWrap.innerHTML = '';
+    (st.drinkOptions || []).forEach((opt) => {
+      const d = document.createElement('div');
+      d.className = 'player-btn';
+      if (myDrinkGuess === opt) d.classList.add('pending');
+      d.innerHTML = `<div class="pb-name" style="text-align:center;padding:4px 0;">${opt}</div>`;
+      if (!myDrinkGuess) d.onclick = () => submitSoundtrackDrinkGuess(opt);
+      drinkWrap.appendChild(d);
+    });
+  }
+
+  document.getElementById('st-reveal').style.display = st.revealed ? 'block' : 'none';
+  if (st.revealed) {
+    const owner = st.players.find(p => p.id === track.playerId);
+    document.getElementById('st-reveal-card').innerHTML = `<div class="card-title">Dit was het nummer van ${owner ? owner.name : '?'}!</div><div class="card-sub">${track.trackName} — ${track.artist}</div>`;
+  }
+
+  const nextBtn = document.getElementById('st-next-btn');
+  nextBtn.style.display = Session.isHost ? 'block' : 'none';
+  if (st.stage === 'guessing') {
+    nextBtn.textContent = 'Onthul eigenaar & drankje →';
+    nextBtn.onclick = hostRevealSoundtrackOwner;
+  } else {
+    nextBtn.textContent = st.index === st.list.length - 1 ? 'Bekijk scorebord →' : 'Volgende nummer →';
+    nextBtn.onclick = hostNextSoundtrack;
+  }
+  document.getElementById('st-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+}
+
+async function submitSoundtrackOwnerGuess(targetId) {
+  if (!latestLobby || !latestLobby.soundtrack) return;
+  await GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId);
+  const st = latestLobby.soundtrack;
+  const ownerAnswers = { ...(st.ownerAnswers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
+  renderSoundtrack({ ...latestLobby, soundtrack: { ...st, ownerAnswers } });
+}
+
+async function hostRevealSoundtrackOwner() {
+  const st = latestLobby.soundtrack;
+  const track = st.list[st.index];
+  const correctGuessers = Object.entries(st.ownerAnswers || {})
+    .filter(([, a]) => a.guess === track.playerId)
+    .sort((a, b) => a[1].at - b[1].at);
+  if (correctGuessers.length) await GameOps.addScore(Session.code, correctGuessers[0][0], 5);
+  const drinkOptions = buildDrinkOptions(st.list, st.index);
+  const next = { ...st, stage: 'drink', revealed: true, drinkOptions, drinkAnswers: {} };
+  await GameOps.setSoundtrack(Session.code, next);
+  renderSoundtrack({ ...latestLobby, soundtrack: next });
+}
+
+async function submitSoundtrackDrinkGuess(drinkText) {
+  if (!latestLobby || !latestLobby.soundtrack) return;
+  await GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText);
+  const st = latestLobby.soundtrack;
+  const drinkAnswers = { ...(st.drinkAnswers || {}), [Session.playerId]: drinkText };
+  renderSoundtrack({ ...latestLobby, soundtrack: { ...st, drinkAnswers } });
+}
+
+async function hostNextSoundtrack() {
+  const st = latestLobby.soundtrack;
+  const track = st.list[st.index];
+  const correctDrink = (track.drink || '').trim();
+  if (correctDrink) {
+    const winners = Object.entries(st.drinkAnswers || {}).filter(([, d]) => d === correctDrink).map(([id]) => id);
+    for (const id of winners) await GameOps.addScore(Session.code, id, 2);
+  }
+  if (typeof stopSpotifyPlayback === 'function') stopSpotifyPlayback();
+  const nextIndex = st.index + 1;
+  if (nextIndex >= st.list.length) {
+    await GameOps.setPhase(Session.code, 'round4-score');
+    showScoreR4();
+    return;
+  }
+  const next = { ...st, index: nextIndex, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
+  await GameOps.setSoundtrack(Session.code, next);
+  renderSoundtrack({ ...latestLobby, soundtrack: next });
+}
+
+// ── Ronde 5: Biecht-Finale (opname + stemvervorming + stemronde) ──
+
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingTimer = null;
+let recordingSeconds = 0;
+let rawRecordingBlob = null;
+let distortedVoiceDataUrl = null;
+let lastRenderedBiechtKey = '';
+
+async function startBiechtRecording() {
+  const statusEl = document.getElementById('biecht-record-status');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      rawRecordingBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      processBiechtRecording();
+    };
+    mediaRecorder.start();
+    recordingSeconds = 0;
+    document.getElementById('biecht-record-btn').style.display = 'none';
+    statusEl.textContent = 'Opname loopt... (max 12s)';
+    recordingTimer = setInterval(() => {
+      recordingSeconds++;
+      document.getElementById('biecht-record-timer').textContent = recordingSeconds + 's';
+      if (recordingSeconds >= 12) stopBiechtRecording();
+    }, 1000);
+  } catch (e) {
+    statusEl.textContent = 'Kon de microfoon niet gebruiken: ' + e.message;
+  }
+}
+
+function stopBiechtRecording() {
+  clearInterval(recordingTimer);
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+}
+
+async function processBiechtRecording() {
+  document.getElementById('biecht-record-status').textContent = 'Stem wordt vervormd...';
+  distortedVoiceDataUrl = await distortVoice(rawRecordingBlob);
+  document.getElementById('biecht-record-status').textContent = 'Klaar! Beluister hieronder voor je verstuurt.';
+  const audio = document.getElementById('biecht-preview');
+  audio.src = distortedVoiceDataUrl;
+  document.getElementById('biecht-preview-wrap').style.display = 'block';
+  document.getElementById('biecht-confirm-btn').style.display = 'block';
+  const btn = document.getElementById('biecht-record-btn');
+  btn.textContent = '🎙 Opnieuw opnemen';
+  btn.style.display = 'block';
+  btn.onclick = resetBiechtRecording;
+}
+
+function resetBiechtRecording() {
+  distortedVoiceDataUrl = null;
+  document.getElementById('biecht-preview-wrap').style.display = 'none';
+  document.getElementById('biecht-confirm-btn').style.display = 'none';
+  document.getElementById('biecht-record-status').textContent = '';
+  document.getElementById('biecht-record-timer').textContent = '0s';
+  const btn = document.getElementById('biecht-record-btn');
+  btn.textContent = '🎙 Start opname';
+  btn.onclick = startBiechtRecording;
+}
+
+async function confirmBiechtRecording() {
+  if (!distortedVoiceDataUrl || !Session.code) return;
+  await Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl);
+  await GameOps.markVoiceReady(Session.code, Session.playerId);
+  go('s-round5-waiting');
+}
+
+// Stemvervorming: neem het opgenomen fragment, verander toonhoogte + snelheid
+// via playbackRate en filter het licht, render het offline en zet het om
+// naar een WAV data-URL zodat het klein genoeg blijft om op te slaan.
+async function distortVoice(blob) {
+  const arrayBuf = await blob.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const tempCtx = new AudioCtx();
+  const audioBuffer = await tempCtx.decodeAudioData(arrayBuf);
+  await tempCtx.close();
+
+  const pitchFactor = Math.random() < 0.5 ? 0.72 : 1.45;
+  const outSampleRate = 11025;
+  const outLength = Math.ceil((audioBuffer.duration / pitchFactor) * outSampleRate);
+  const offlineCtx = new OfflineAudioContext(1, outLength, outSampleRate);
+
+  const src = offlineCtx.createBufferSource();
+  src.buffer = audioBuffer;
+  src.playbackRate.value = pitchFactor;
+  const filter = offlineCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 4000;
+  src.connect(filter);
+  filter.connect(offlineCtx.destination);
+  src.start();
+
+  const rendered = await offlineCtx.startRendering();
+  return audioBufferToWavDataUrl(rendered);
+}
+
+function audioBufferToWavDataUrl(buffer) {
+  const sampleRate = buffer.sampleRate;
+  const samples = buffer.getChannelData(0);
+  const dataSize = samples.length * 2;
+  const arr = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(arr);
+  const writeStr = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+
+  writeStr(0, 'RIFF'); view.setUint32(4, 36 + dataSize, true); writeStr(8, 'WAVE');
+  writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  writeStr(36, 'data'); view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+  const blob = new Blob([arr], { type: 'audio/wav' });
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function renderBiechtWaiting(lobby) {
+  const notDoneEl = document.getElementById('biecht-notdone');
+  if (!notDoneEl || !document.getElementById('s-round5-waiting').classList.contains('active')) return;
+  const notDone = lobby.players.filter(p => !p.voiceReady);
+  const done = lobby.players.filter(p => p.voiceReady);
+  document.getElementById('biecht-notdone-card').style.display = notDone.length ? 'block' : 'none';
+  notDoneEl.innerHTML = notDone.map(p => `<span class="pill">${p.name}</span>`).join('');
+  document.getElementById('biecht-donecount').textContent = `Klaar (${done.length}/${lobby.players.length})`;
+  document.getElementById('biecht-donelist').textContent = done.map(p => p.name).join(', ') || '—';
+  const enough = done.length >= 2;
+  document.getElementById('biecht-start-btn').style.display = Session.isHost && enough ? 'block' : 'none';
+  document.getElementById('biecht-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+}
+
+async function hostStartBiechtPlayback() {
+  const order = latestLobby.players.filter(p => p.voiceReady).map(p => p.id);
+  const biecht = { stage: 'playback', order, index: 0, votes: {}, bonusGiven: false };
+  await GameOps.setBiecht(Session.code, biecht);
+  await GameOps.setPhase(Session.code, 'biecht-active');
+  go('s-round5-play');
+  renderBiecht({ ...latestLobby, biecht, phase: 'biecht-active' });
+}
+
+async function renderBiecht(lobby) {
+  if (lobby.phase === 'biecht-active' && document.getElementById('s-round5-waiting').classList.contains('active')) {
+    go('s-round5-play');
+  }
+  if (!lobby.biecht) return;
+  const b = lobby.biecht;
+
+  if (b.stage === 'playback' && document.getElementById('s-round5-play').classList.contains('active')) {
+    const targetId = b.order[b.index];
+    const key = 'play:' + targetId;
+    document.getElementById('biecht-play-num').textContent = `Verhaal ${b.index + 1} van ${b.order.length}`;
+    if (key !== lastRenderedBiechtKey) {
+      lastRenderedBiechtKey = key;
+      const audioEl = document.getElementById('biecht-play-audio');
+      audioEl.src = '';
+      document.getElementById('biecht-play-hint').textContent = 'Laden...';
+      Backend.getVoice(Session.code, targetId).then((url) => {
+        audioEl.src = url;
+        document.getElementById('biecht-play-hint').textContent = 'Een vervormde stem... wie zou het zijn?';
+      });
+    }
+    document.getElementById('biecht-play-next-btn').style.display = Session.isHost ? 'block' : 'none';
+    document.getElementById('biecht-play-next-btn').textContent = b.index === b.order.length - 1 ? 'Naar de stemronde →' : 'Volgende →';
+    document.getElementById('biecht-play-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+  }
+
+  if (b.stage === 'voting') {
+    if (document.getElementById('s-round5-play').classList.contains('active')) go('s-round5-vote');
+    if (!document.getElementById('s-round5-vote').classList.contains('active')) return;
+    renderBiechtVoting(lobby, b);
+  }
+}
+
+function renderBiechtVoting(lobby, b) {
+  const wrap = document.getElementById('biecht-vote-players');
+  const myVote = (b.votes || {})[Session.playerId];
+  wrap.innerHTML = '';
+  b.order.forEach((pid) => {
+    const p = lobby.players.find(pl => pl.id === pid);
+    if (!p) return;
+    const d = document.createElement('div');
+    d.className = 'player-btn';
+    if (myVote === pid) d.classList.add('pending');
+    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+    if (!myVote && p.id !== Session.playerId) d.onclick = () => castBiechtVote(pid);
+    wrap.appendChild(d);
+  });
+
+  const votedCount = Object.keys(b.votes || {}).length;
+  const eligible = lobby.players.length;
+  const showResults = !!myVote || votedCount >= eligible;
+  document.getElementById('biecht-vote-results').style.display = showResults ? 'block' : 'none';
+  if (showResults) {
+    const tally = {};
+    Object.values(b.votes || {}).forEach((pid) => { tally[pid] = (tally[pid] || 0) + 1; });
+    const rows = b.order.map((pid) => {
+      const p = lobby.players.find(pl => pl.id === pid);
+      return { name: p ? p.name : '?', count: tally[pid] || 0 };
+    }).sort((a, b2) => b2.count - a.count);
+    document.getElementById('biecht-vote-tally').innerHTML = rows.map(r => `<div class="score-row"><div class="score-name">${r.name}</div><div class="score-pts">${r.count} stem${r.count === 1 ? '' : 'men'}</div></div>`).join('');
+  }
+  document.getElementById('biecht-vote-next-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('biecht-vote-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+}
+
+async function hostNextBiechtPlay() {
+  const b = latestLobby.biecht;
+  const nextIndex = b.index + 1;
+  if (nextIndex >= b.order.length) {
+    const next = { ...b, stage: 'voting' };
+    await GameOps.setBiecht(Session.code, next);
+    go('s-round5-vote');
+    renderBiecht({ ...latestLobby, biecht: next });
+    return;
+  }
+  const next = { ...b, index: nextIndex };
+  await GameOps.setBiecht(Session.code, next);
+  renderBiecht({ ...latestLobby, biecht: next });
+}
+
+async function castBiechtVote(targetId) {
+  if (!latestLobby || !latestLobby.biecht) return;
+  await GameOps.voteBiecht(Session.code, targetId, Session.playerId);
+  const b = latestLobby.biecht;
+  const votes = { ...(b.votes || {}), [Session.playerId]: targetId };
+  renderBiechtVoting({ ...latestLobby, biecht: { ...b, votes } }, { ...b, votes });
+}
+
+async function finishBiechtVoting() {
+  const b = latestLobby.biecht;
+  const tally = {};
+  Object.values(b.votes || {}).forEach((pid) => { tally[pid] = (tally[pid] || 0) + 1; });
+  const maxVotes = Math.max(0, ...Object.values(tally));
+  if (maxVotes > 0) {
+    const winners = Object.entries(tally).filter(([, c]) => c === maxVotes).map(([pid]) => pid);
+    for (const pid of winners) await GameOps.addScore(Session.code, pid, 5);
+  }
+  await GameOps.setPhase(Session.code, 'final');
+  showFinal();
 }
 
 // ── Ronde 5: Eindstand ────────────────────

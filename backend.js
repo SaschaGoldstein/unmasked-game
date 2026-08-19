@@ -300,9 +300,32 @@ async function voteBiecht(code, targetPlayerId, voterId) {
   });
 }
 
+async function setSoundtrack(code, soundtrackState) {
+  return Backend.updateLobby(code, (lobby) => { lobby.soundtrack = soundtrackState; });
+}
+
+async function submitSoundtrackGuess(code, playerId, guess) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.soundtrack) return;
+    if (!lobby.soundtrack.ownerAnswers) lobby.soundtrack.ownerAnswers = {};
+    if (lobby.soundtrack.ownerAnswers[playerId]) return;
+    lobby.soundtrack.ownerAnswers[playerId] = { guess, at: Date.now() };
+  });
+}
+
+async function submitSoundtrackDrinkGuess(code, playerId, drink) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.soundtrack) return;
+    if (!lobby.soundtrack.drinkAnswers) lobby.soundtrack.drinkAnswers = {};
+    if (lobby.soundtrack.drinkAnswers[playerId]) return;
+    lobby.soundtrack.drinkAnswers[playerId] = drink;
+  });
+}
+
 window.GameOps = {
   submitDossier, submitPhoto, setPhase, addScore,
   setHotOrNot, voteHotOrNot,
   setVerhoor, submitVerhoorGuess,
   setBiecht, markVoiceReady, voteBiecht,
+  setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess,
 };

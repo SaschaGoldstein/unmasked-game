@@ -339,7 +339,7 @@
       </div>
       <div class="card" style="width:100%;"><div id="scoreboard-r3"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="go('s-round4-intro')">Verder naar Ronde 4 →</button>
+        <button class="btn amber" onclick="goRound4Intro()">Verder naar Ronde 4 →</button>
       </div>
     </div>
   </div>
@@ -347,16 +347,24 @@
   <!-- RONDE 4 INTRO -->
   <div class="screen" id="s-round4-intro">
     <div class="screen-inner centered">
-      <span class="round-intro-icon">🎭</span>
+      <span class="round-intro-icon" id="r4intro-icon">🎵</span>
       <div class="round-intro-title">Ronde 4</div>
-      <div class="round-intro-accent">Wie Ben Ik</div>
-      <div class="round-intro-sub">Aanwijzingen over een speler verschijnen één voor één, van vaag naar duidelijk. Raad zo vroeg mogelijk.</div>
-      <div class="rules">
+      <div class="round-intro-accent" id="r4intro-accent">Soundtrack &amp; Spirit</div>
+      <div class="round-intro-sub" id="r4intro-sub">De host speelt ieders lievelingsnummer af. Wie is de eigenaar? En welk drankje hoort erbij?</div>
+      <div class="rules" id="r4intro-rules-soundtrack">
+        <div class="rule-row"><div class="rule-icon">🎧</div><div class="rule-text">De host speelt een <strong>fragment</strong> van ieders lievelingsnummer</div></div>
+        <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad de eigenaar → daarna een <strong>bonusgok</strong> voor het lievelingsdrankje</div></div>
+        <div class="rule-row"><div class="rule-icon">🥤</div><div class="rule-text">Beide goed = <strong>extra punten</strong></div></div>
+      </div>
+      <div class="rules" id="r4intro-rules-whoami" style="display:none;">
         <div class="rule-row"><div class="rule-icon">🔎</div><div class="rule-text">Aanwijzingen komen <strong>één voor één</strong> binnen</div></div>
         <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad na aanwijzing 1: <strong>6pt</strong> · na 2: <strong>4pt</strong> · na 3: <strong>2pt</strong></div></div>
         <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text">Maximum <strong>15 seconden</strong> per persoon</div></div>
       </div>
-      <button class="btn amber" style="margin-top:auto;" onclick="startRound4()">Start de ronde →</button>
+      <button class="btn secondary" id="r4intro-spotify-connect-btn" style="margin-top:16px;display:none;" onclick="spotifyConnect()">🎧 Host: verbind met Spotify</button>
+      <div class="label-sm" id="r4intro-spotify-status" style="margin-top:8px;"></div>
+      <button class="btn amber" id="r4intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartRound4()">Start de ronde →</button>
+      <div class="label-sm" id="r4intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
 
@@ -384,6 +392,37 @@
     </div>
   </div>
 
+  <!-- RONDE 4 VRAAG: SOUNDTRACK & SPIRIT -->
+  <div class="screen" id="s-round4-soundtrack-q">
+    <div class="round-header">
+      <div class="round-badge">Ronde 4</div>
+      <div class="round-title">Soundtrack &amp; Spirit</div>
+    </div>
+    <div class="screen-inner" style="padding-top:16px;">
+      <div class="progress-bar"><div class="progress-fill" id="st-progress" style="width:20%"></div></div>
+      <div class="label-sm" id="st-qnum">Nummer 1 van 4</div>
+      <div class="suspect-card" id="st-host-player" style="display:none;">
+        <div id="st-embed"></div>
+      </div>
+      <div class="suspect-card" id="st-guest-wait" style="text-align:center;">
+        <div class="suspect-emoji">🎵</div>
+        <div class="card-sub">Het nummer speelt via de host — luister mee!</div>
+      </div>
+      <div class="label-sm" id="st-stage-label">Wie is de eigenaar van dit nummer?</div>
+      <div class="player-grid" id="st-owner-players"></div>
+      <div id="st-drink-stage" style="display:none;width:100%;">
+        <div class="label-sm" id="st-drink-label">Bonus: welk drankje hoort bij deze persoon?</div>
+        <div class="accuse-list" id="st-drink-options"></div>
+      </div>
+      <div id="st-reveal" style="display:none;width:100%;">
+        <div class="card" id="st-reveal-card"></div>
+      </div>
+      <button class="btn amber" id="st-host-play-btn" style="display:none;margin-top:8px;" onclick="hostPlaySoundtrack()">▶ Speel fragment af</button>
+      <button class="btn amber" id="st-next-btn" style="display:none;margin-top:8px;" onclick="hostNextSoundtrack()">Volgende →</button>
+      <div class="label-sm" id="st-wait-msg" style="margin-top:8px;">Wachten op de host...</div>
+    </div>
+  </div>
+
   <!-- SCOREBORD NA R4 -->
   <div class="screen" id="s-round4-score">
     <div class="screen-inner centered">
@@ -392,8 +431,86 @@
       <div class="waiting-sub" style="margin-bottom:16px;">Laatste tussenstand — op naar de eindstand!</div>
       <div class="card" style="width:100%;"><div id="scoreboard-r4"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="showFinal()">Bekijk de eindstand →</button>
+        <button class="btn amber" onclick="go('s-round5-intro')">Naar Ronde 5: Biecht-Finale →</button>
       </div>
+    </div>
+  </div>
+
+  <!-- RONDE 5 INTRO -->
+  <div class="screen" id="s-round5-intro">
+    <div class="screen-inner centered">
+      <span class="round-intro-icon">🎙️</span>
+      <div class="round-intro-title">Ronde 5</div>
+      <div class="round-intro-accent">De Biecht-Finale</div>
+      <div class="round-intro-sub">Spreek een kort verhaal in — je stem wordt automatisch vervormd. De groep luistert samen en stemt op het beste verhaal.</div>
+      <div class="rules">
+        <div class="rule-row"><div class="rule-icon">🎙️</div><div class="rule-text">Neem een verhaal op van <strong>max. 12 seconden</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">🌀</div><div class="rule-text">Je stem wordt automatisch <strong>vervormd</strong> — anoniem</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">De groep stemt → <strong>+5 bonuspunten</strong> voor het beste verhaal</div></div>
+      </div>
+      <button class="btn amber" style="margin-top:auto;" onclick="go('s-round5-record')">Neem je biecht op →</button>
+    </div>
+  </div>
+
+  <!-- RONDE 5 OPNAME -->
+  <div class="screen" id="s-round5-record">
+    <div class="screen-inner centered">
+      <div class="section-title">Jouw biecht</div>
+      <div class="section-sub">Spreek iets kleins in — een leugentje, een geheim, iets grappigs. Max 12 seconden.</div>
+      <span class="round-intro-icon" style="margin-top:16px;">🎙️</span>
+      <div class="label-sm" id="biecht-record-timer">0s</div>
+      <button class="btn amber" id="biecht-record-btn" onclick="startBiechtRecording()">🎙 Start opname</button>
+      <div class="label-sm" id="biecht-record-status"></div>
+      <div id="biecht-preview-wrap" style="display:none;width:100%;margin-top:8px;">
+        <audio id="biecht-preview" controls style="width:100%;"></audio>
+      </div>
+      <button class="btn" id="biecht-confirm-btn" style="display:none;margin-top:16px;" onclick="confirmBiechtRecording()">Verstuur biecht →</button>
+    </div>
+  </div>
+
+  <!-- RONDE 5 WACHTKAMER -->
+  <div class="screen" id="s-round5-waiting">
+    <div class="screen-inner centered">
+      <span class="waiting-big">⏳</span>
+      <div class="waiting-title">Biecht ingediend!</div>
+      <div class="waiting-sub">Wacht tot genoeg spelers klaar zijn. De host start het luisteren wanneer de groep zover is.</div>
+      <div class="card" id="biecht-notdone-card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><div id="biecht-notdone"></div></div>
+      <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="biecht-donecount">Klaar (0/0)</div><div class="card-sub" id="biecht-donelist"></div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" id="biecht-start-btn" style="display:none;" onclick="hostStartBiechtPlayback()">Host: Start het luisteren →</button>
+        <div class="label-sm" id="biecht-wait-msg">Wachten op de host...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RONDE 5 AFSPELEN -->
+  <div class="screen" id="s-round5-play">
+    <div class="round-header">
+      <div class="round-badge" style="background:linear-gradient(135deg,var(--violet),var(--accent));">Ronde 5</div>
+      <div class="round-title">Biecht-Finale</div>
+    </div>
+    <div class="screen-inner centered" style="padding-top:16px;">
+      <div class="label-sm" id="biecht-play-num">Verhaal 1 van 4</div>
+      <span class="round-intro-icon">🌀</span>
+      <div class="waiting-title" style="font-size:18px;" id="biecht-play-hint">Een vervormde stem...</div>
+      <audio id="biecht-play-audio" controls style="width:100%;margin-top:12px;"></audio>
+      <button class="btn amber" id="biecht-play-next-btn" style="margin-top:auto;display:none;" onclick="hostNextBiechtPlay()">Volgende →</button>
+      <div class="label-sm" id="biecht-play-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
+    </div>
+  </div>
+
+  <!-- RONDE 5 STEMMEN -->
+  <div class="screen" id="s-round5-vote">
+    <div class="round-header">
+      <div class="round-badge" style="background:linear-gradient(135deg,var(--violet),var(--accent));">Ronde 5</div>
+      <div class="round-title">Stem op het beste verhaal</div>
+    </div>
+    <div class="screen-inner" style="padding-top:16px;">
+      <div class="section-sub">Wie had het beste (of grappigste) verhaal?</div>
+      <div class="player-grid" id="biecht-vote-players"></div>
+      <div class="card" id="biecht-vote-results" style="display:none;"><div id="biecht-vote-tally"></div></div>
+      <button class="btn amber" id="biecht-vote-next-btn" style="display:none;margin-top:12px;" onclick="finishBiechtVoting()">Bekijk de eindstand →</button>
+      <div class="label-sm" id="biecht-vote-wait-msg" style="margin-top:12px;">Wachten op de host...</div>
     </div>
   </div>
 
@@ -414,6 +531,8 @@
 
 <script src="firebase-config.js"></script>
 <script src="backend.js"></script>
+<script src="spotify-config.js"></script>
+<script src="spotify.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

@@ -25,7 +25,7 @@
         <div class="card-title">Hoe werkt het?</div>
         <div class="card-sub">Vul je dossier in, kom samen, en ontmasker je vrienden in 5 rondes — gewoon via je browser.</div>
       </div>
-      <div class="nav-hint">Prototype v1 · Pre-game · Ronde 1 · Ronde 2</div>
+      <div class="nav-hint">Prototype v2 · 5 rondes · lokale multiplayer</div>
     </div>
   </div>
 
@@ -36,33 +36,28 @@
       <div class="section-title">Lobby aanmaken</div>
       <div class="section-sub">Vul je naam in en stuur de link naar je groep. Geen download vereist voor je vrienden.</div>
       <label>Jouw naam</label>
-      <input type="text" placeholder="bijv. Sander" />
+      <input type="text" placeholder="bijv. Sander" id="create-name" />
       <label>Aantal spelers</label>
-      <input type="number" min="4" max="12" value="6" />
-      <button class="btn amber" style="margin-top:28px;" onclick="go('s-lobby')">Lobby aanmaken →</button>
+      <input type="number" min="4" max="12" value="6" id="create-maxplayers" />
+      <div class="label-sm" id="create-error" style="color:var(--red);display:none;margin-top:8px;"></div>
+      <button class="btn amber" style="margin-top:28px;" onclick="createLobbyClick()">Lobby aanmaken →</button>
     </div>
   </div>
 
   <!-- LOBBY CODE -->
   <div class="screen" id="s-lobby">
     <div class="screen-inner">
-      <button class="back-btn" onclick="go('s-create')">← Terug</button>
+      <button class="back-btn" onclick="go('s-home')">← Terug</button>
       <div class="section-title">Lobby actief!</div>
-      <div class="section-sub">Stuur de link naar je vrienden. Ze klikken gewoon aan — geen account, geen download.</div>
+      <div class="section-sub">Stuur de code naar je vrienden. Ze klikken "Meedoen met code" — geen account, geen download.</div>
       <div class="code-box">
-        <div class="code-big">UM-47</div>
-        <div class="code-hint">Of deel de directe link hieronder</div>
+        <div class="code-big" id="lobby-code-big">—</div>
+        <div class="code-hint">Deel deze code met je groep</div>
       </div>
-      <button class="btn secondary" style="margin-bottom:8px;">🔗 Kopieer uitnodigingslink</button>
-      <button class="btn secondary" style="margin-bottom:20px;">📱 Deel via WhatsApp</button>
-      <div class="section-title" style="font-size:17px;margin-bottom:12px;">Spelers (4/6)</div>
-      <div class="player-list">
-        <div class="player-row"><div class="avatar" style="background:#2a1020;color:#ff3d6b;">S</div><div class="player-name">Sander (jij)</div><span class="player-status status-done">Klaar</span></div>
-        <div class="player-row"><div class="avatar" style="background:#0e1e30;color:#378add;">L</div><div class="player-name">Lien</div><span class="player-status status-done">Klaar</span></div>
-        <div class="player-row"><div class="avatar" style="background:#1a1510;color:#ef9f27;">T</div><div class="player-name">Thomas</div><span class="player-status status-done">Klaar</span></div>
-        <div class="player-row"><div class="avatar" style="background:#0e1e18;color:#4caf82;">E</div><div class="player-name">Emma</div><span class="player-status status-wait">Bezig...</span></div>
-      </div>
-      <button class="btn" onclick="go('s-dossier')" style="margin-top:auto;">Mijn dossier invullen →</button>
+      <button class="btn secondary" style="margin-bottom:20px;" onclick="copyInviteCode()">🔗 Kopieer code</button>
+      <div class="section-title" style="font-size:17px;margin-bottom:12px;" id="lobby-player-count">Spelers (1/6)</div>
+      <div class="player-list" id="lobby-player-list"></div>
+      <button class="btn" onclick="goDossier()" style="margin-top:auto;">Mijn dossier invullen →</button>
     </div>
   </div>
 
@@ -73,10 +68,11 @@
       <div class="section-title">Meedoen</div>
       <div class="section-sub">Vul je naam in en voer de code in die de host je heeft gestuurd.</div>
       <label>Jouw naam</label>
-      <input type="text" placeholder="bijv. Emma" />
+      <input type="text" placeholder="bijv. Emma" id="join-name" />
       <label>Lobby-code</label>
-      <input type="text" placeholder="bijv. UM-47" class="code-input" />
-      <button class="btn amber" style="margin-top:28px;" onclick="go('s-dossier')">Meedoen →</button>
+      <input type="text" placeholder="bijv. UM-47" class="code-input" id="join-code" />
+      <div class="label-sm" id="join-error" style="color:var(--red);display:none;margin-top:8px;"></div>
+      <button class="btn amber" style="margin-top:28px;" onclick="joinLobbyClick()">Meedoen →</button>
     </div>
   </div>
 
@@ -101,10 +97,11 @@
       <span class="waiting-big">⏳</span>
       <div class="waiting-title">Dossier ingediend!</div>
       <div class="waiting-sub">Wacht tot iedereen klaar is. De host start het spel wanneer de groep volledig is.</div>
-      <div class="card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><span class="pill">Emma</span><span class="pill">Nina</span></div>
-      <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);">Klaar (4/6)</div><div class="card-sub">Sander, Lien, Thomas, Kobe</div></div>
+      <div class="card" id="waiting-notdone-card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><div id="waiting-notdone"></div></div>
+      <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="waiting-donecount">Klaar (0/0)</div><div class="card-sub" id="waiting-donelist"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="go('s-round1-intro')">Host: Spel starten →</button>
+        <button class="btn amber" id="waiting-start-btn" style="display:none;" onclick="hostStartGame()">Host: Spel starten →</button>
+        <div class="label-sm" id="waiting-nothost-msg">Wacht tot de host het spel start...</div>
       </div>
     </div>
   </div>
@@ -214,12 +211,141 @@
       </div>
       <div class="card" style="width:100%;"><div id="scoreboard-r2"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="go('s-home')">Ronde 3 (coming soon) →</button>
-        <button class="btn ghost" onclick="go('s-home')">Terug naar home</button>
+        <button class="btn amber" onclick="go('s-round3-intro')">Verder naar Ronde 3 →</button>
       </div>
     </div>
   </div>
 
+  <!-- RONDE 3 INTRO -->
+  <div class="screen" id="s-round3-intro">
+    <div class="screen-inner centered">
+      <span class="round-intro-icon">🕵️</span>
+      <div class="round-intro-title">Ronde 3</div>
+      <div class="round-intro-accent">Verhoor</div>
+      <div class="round-intro-sub">Een anonieme bekentenis wordt voorgelezen. Wie is de dader? Wijs de schuldige aan voor de tijd om is.</div>
+      <div class="rules">
+        <div class="rule-row"><div class="rule-icon">🤐</div><div class="rule-text">Een <strong>bekentenis</strong> verschijnt, anoniem</div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>6 seconden</strong> om te beslissen</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Hoe sneller je de dader ontmaskert, <strong>hoe meer punten</strong></div></div>
+      </div>
+      <button class="btn amber" style="margin-top:auto;" onclick="startRound3()">Start het verhoor →</button>
+    </div>
+  </div>
+
+  <!-- RONDE 3 VRAAG -->
+  <div class="screen" id="s-round3-q">
+    <div class="round-header">
+      <div class="round-badge">Ronde 3</div>
+      <div class="round-title">Verhoor</div>
+      <div class="round-score" id="r3-score">0 pt</div>
+    </div>
+    <div class="screen-inner" style="padding-top:16px;">
+      <div class="progress-bar"><div class="progress-fill" id="r3-progress" style="width:20%"></div></div>
+      <div class="label-sm" id="r3-qnum">Bekentenis 1 van 5</div>
+      <div class="suspect-card">
+        <div class="suspect-emoji">🤐</div>
+        <div class="suspect-confession" id="r3-confession"></div>
+      </div>
+      <div class="timer-ring">
+        <svg width="72" height="72" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r="30" fill="none" stroke="#2e2d45" stroke-width="6"/>
+          <circle id="r3-timer-arc" cx="36" cy="36" r="30" fill="none" stroke="#ff3d6b" stroke-width="6" stroke-dasharray="188.5" stroke-dashoffset="0" stroke-linecap="round"/>
+        </svg>
+        <div class="timer-num" id="r3-timer-num">6</div>
+      </div>
+      <div class="accuse-list" id="r3-answers"></div>
+      <div id="r3-feedback" style="display:none;margin-top:4px;"></div>
+      <button class="btn" id="r3-next-btn" style="display:none;margin-top:8px;" onclick="nextR3Q()">Volgende bekentenis →</button>
+    </div>
+  </div>
+
+  <!-- SCOREBORD NA R3 -->
+  <div class="screen" id="s-round3-score">
+    <div class="screen-inner centered">
+      <span class="waiting-big" style="font-size:44px;">🕵️</span>
+      <div class="waiting-title">Na Ronde 3</div>
+      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 2 rondes te gaan.</div>
+      <div class="between-rounds">
+        <div class="br-icon">🎭</div>
+        <div class="br-title">Ronde 4 komt eraan</div>
+        <div class="br-sub">Wie Ben Ik — er verschijnen stukje bij beetje aanwijzingen over iemand. Hoe eerder je raadt, hoe meer punten.</div>
+      </div>
+      <div class="card" style="width:100%;"><div id="scoreboard-r3"></div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" onclick="go('s-round4-intro')">Verder naar Ronde 4 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RONDE 4 INTRO -->
+  <div class="screen" id="s-round4-intro">
+    <div class="screen-inner centered">
+      <span class="round-intro-icon">🎭</span>
+      <div class="round-intro-title">Ronde 4</div>
+      <div class="round-intro-accent">Wie Ben Ik</div>
+      <div class="round-intro-sub">Aanwijzingen over een speler verschijnen één voor één, van vaag naar duidelijk. Raad zo vroeg mogelijk.</div>
+      <div class="rules">
+        <div class="rule-row"><div class="rule-icon">🔎</div><div class="rule-text">Aanwijzingen komen <strong>één voor één</strong> binnen</div></div>
+        <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad na aanwijzing 1: <strong>6pt</strong> · na 2: <strong>4pt</strong> · na 3: <strong>2pt</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text">Maximum <strong>15 seconden</strong> per persoon</div></div>
+      </div>
+      <button class="btn amber" style="margin-top:auto;" onclick="startRound4()">Start de ronde →</button>
+    </div>
+  </div>
+
+  <!-- RONDE 4 VRAAG -->
+  <div class="screen" id="s-round4-q">
+    <div class="round-header">
+      <div class="round-badge">Ronde 4</div>
+      <div class="round-title">Wie Ben Ik</div>
+      <div class="round-score" id="r4-score">0 pt</div>
+    </div>
+    <div class="screen-inner" style="padding-top:16px;">
+      <div class="progress-bar"><div class="progress-fill" id="r4-progress" style="width:20%"></div></div>
+      <div class="label-sm" id="r4-qnum">Persoon 1 van 5</div>
+      <div class="wsd-clue-list" id="r4-clues"></div>
+      <div class="timer-ring">
+        <svg width="72" height="72" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r="30" fill="none" stroke="#2e2d45" stroke-width="6"/>
+          <circle id="r4-timer-arc" cx="36" cy="36" r="30" fill="none" stroke="#ff3d6b" stroke-width="6" stroke-dasharray="188.5" stroke-dashoffset="0" stroke-linecap="round"/>
+        </svg>
+        <div class="timer-num" id="r4-timer-num">15</div>
+      </div>
+      <div class="player-grid" id="r4-players"></div>
+      <div class="r2-feedback" id="r4-feedback"></div>
+      <button class="btn" id="r4-next-btn" style="display:none;margin-top:4px;" onclick="nextR4Q()">Volgende persoon →</button>
+    </div>
+  </div>
+
+  <!-- SCOREBORD NA R4 -->
+  <div class="screen" id="s-round4-score">
+    <div class="screen-inner centered">
+      <span class="waiting-big" style="font-size:44px;">🎭</span>
+      <div class="waiting-title">Na Ronde 4</div>
+      <div class="waiting-sub" style="margin-bottom:16px;">Laatste tussenstand — op naar de eindstand!</div>
+      <div class="card" style="width:100%;"><div id="scoreboard-r4"></div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" onclick="showFinal()">Bekijk de eindstand →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RONDE 5: EINDSTAND -->
+  <div class="screen" id="s-round5-final">
+    <div class="screen-inner centered">
+      <span class="waiting-big" style="font-size:48px;">🏆</span>
+      <div class="waiting-title">Eindstand</div>
+      <div class="waiting-sub" style="margin-bottom:4px;">Vijf rondes verder — dit is wie jullie écht zijn.</div>
+      <div class="final-podium" id="final-podium"></div>
+      <div class="card" style="width:100%;"><div id="scoreboard-final"></div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" onclick="go('s-home')">Terug naar home</button>
+      </div>
+    </div>
+  </div>
+
+<script src="firebase-config.js"></script>
+<script src="backend.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

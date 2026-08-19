@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f0e17" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Unmasked</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- HOME -->
+  <div class="screen active" id="s-home">
+    <div class="screen-inner">
+      <div class="logo">Unmasked</div>
+      <div class="tagline">De party-game die je vrienden echt blootlegt</div>
+      <span class="hero-emoji">🎭</span>
+      <button class="btn" onclick="go('s-create')">Lobby aanmaken</button>
+      <button class="btn secondary" onclick="go('s-join')">Meedoen met code</button>
+      <div class="card" style="margin-top:8px;">
+        <div class="card-title">Hoe werkt het?</div>
+        <div class="card-sub">Vul je dossier in, kom samen, en ontmasker je vrienden in 5 rondes — gewoon via je browser.</div>
+      </div>
+      <div class="nav-hint">Prototype v1 · Pre-game · Ronde 1 · Ronde 2</div>
+    </div>
+  </div>
+
+  <!-- LOBBY AANMAKEN -->
+  <div class="screen" id="s-create">
+    <div class="screen-inner">
+      <button class="back-btn" onclick="go('s-home')">← Terug</button>
+      <div class="section-title">Lobby aanmaken</div>
+      <div class="section-sub">Vul je naam in en stuur de link naar je groep. Geen download vereist voor je vrienden.</div>
+      <label>Jouw naam</label>
+      <input type="text" placeholder="bijv. Sander" />
+      <label>Aantal spelers</label>
+      <input type="number" min="4" max="12" value="6" />
+      <button class="btn amber" style="margin-top:28px;" onclick="go('s-lobby')">Lobby aanmaken →</button>
+    </div>
+  </div>
+
+  <!-- LOBBY CODE -->
+  <div class="screen" id="s-lobby">
+    <div class="screen-inner">
+      <button class="back-btn" onclick="go('s-create')">← Terug</button>
+      <div class="section-title">Lobby actief!</div>
+      <div class="section-sub">Stuur de link naar je vrienden. Ze klikken gewoon aan — geen account, geen download.</div>
+      <div class="code-box">
+        <div class="code-big">UM-47</div>
+        <div class="code-hint">Of deel de directe link hieronder</div>
+      </div>
+      <button class="btn secondary" style="margin-bottom:8px;">🔗 Kopieer uitnodigingslink</button>
+      <button class="btn secondary" style="margin-bottom:20px;">📱 Deel via WhatsApp</button>
+      <div class="section-title" style="font-size:17px;margin-bottom:12px;">Spelers (4/6)</div>
+      <div class="player-list">
+        <div class="player-row"><div class="avatar" style="background:#2a1020;color:#ff3d6b;">S</div><div class="player-name">Sander (jij)</div><span class="player-status status-done">Klaar</span></div>
+        <div class="player-row"><div class="avatar" style="background:#0e1e30;color:#378add;">L</div><div class="player-name">Lien</div><span class="player-status status-done">Klaar</span></div>
+        <div class="player-row"><div class="avatar" style="background:#1a1510;color:#ef9f27;">T</div><div class="player-name">Thomas</div><span class="player-status status-done">Klaar</span></div>
+        <div class="player-row"><div class="avatar" style="background:#0e1e18;color:#4caf82;">E</div><div class="player-name">Emma</div><span class="player-status status-wait">Bezig...</span></div>
+      </div>
+      <button class="btn" onclick="go('s-dossier')" style="margin-top:auto;">Mijn dossier invullen →</button>
+    </div>
+  </div>
+
+  <!-- JOIN -->
+  <div class="screen" id="s-join">
+    <div class="screen-inner">
+      <button class="back-btn" onclick="go('s-home')">← Terug</button>
+      <div class="section-title">Meedoen</div>
+      <div class="section-sub">Vul je naam in en voer de code in die de host je heeft gestuurd.</div>
+      <label>Jouw naam</label>
+      <input type="text" placeholder="bijv. Emma" />
+      <label>Lobby-code</label>
+      <input type="text" placeholder="bijv. UM-47" class="code-input" />
+      <button class="btn amber" style="margin-top:28px;" onclick="go('s-dossier')">Meedoen →</button>
+    </div>
+  </div>
+
+  <!-- DOSSIER -->
+  <div class="screen" id="s-dossier">
+    <div class="screen-inner">
+      <button class="back-btn" onclick="go('s-lobby')">← Terug</button>
+      <div class="section-title">Jouw dossier</div>
+      <div class="section-sub">Beantwoord eerlijk — hoe beter je invult, hoe leuker de avond.</div>
+      <div class="progress-bar"><div class="progress-fill" id="dossier-progress" style="width:20%"></div></div>
+      <div id="q-counter" class="label-sm">Vraag 1 van 5</div>
+      <div id="q-text" class="q-text">Ik word chagrijnig van:</div>
+      <textarea placeholder="Typ je antwoord..." id="q-answer"></textarea>
+      <button class="btn" id="dossier-next-btn" style="margin-top:16px;" onclick="nextQ()">Volgende →</button>
+      <button class="btn ghost" onclick="nextQ()">Sla over</button>
+    </div>
+  </div>
+
+  <!-- WACHTKAMER -->
+  <div class="screen" id="s-waiting">
+    <div class="screen-inner centered">
+      <span class="waiting-big">⏳</span>
+      <div class="waiting-title">Dossier ingediend!</div>
+      <div class="waiting-sub">Wacht tot iedereen klaar is. De host start het spel wanneer de groep volledig is.</div>
+      <div class="card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><span class="pill">Emma</span><span class="pill">Nina</span></div>
+      <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);">Klaar (4/6)</div><div class="card-sub">Sander, Lien, Thomas, Kobe</div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" onclick="go('s-round1-intro')">Host: Spel starten →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RONDE 1 INTRO -->
+  <div class="screen" id="s-round1-intro">
+    <div class="screen-inner centered">
+      <span class="round-intro-icon">⚡</span>
+      <div class="round-intro-title">Ronde 1</div>
+      <div class="round-intro-accent">Quick Fire</div>
+      <div class="round-intro-sub">Een antwoord flitst voorbij — raad zo snel mogelijk van wie het is. Hoe sneller, hoe meer punten.</div>
+      <div class="rules">
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>5 seconden</strong> per antwoord</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Snelheidsbonus: <strong>1e = 3pt · 2e = 2pt · 3e = 1pt</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">🎯</div><div class="rule-text">Iedereen speelt <strong>simultaan</strong> op zijn telefoon</div></div>
+      </div>
+      <button class="btn amber" style="margin-top:auto;" onclick="startRound1()">Start de ronde →</button>
+    </div>
+  </div>
+
+  <!-- RONDE 1 VRAAG -->
+  <div class="screen" id="s-round1-q">
+    <div class="round-header">
+      <div class="round-badge">Ronde 1</div>
+      <div class="round-title">Quick Fire</div>
+      <div class="round-score" id="r1-score">0 pt</div>
+    </div>
+    <div class="screen-inner" style="padding-top:16px;">
+      <div class="progress-bar"><div class="progress-fill" id="r1-progress" style="width:12%"></div></div>
+      <div class="label-sm" id="r1-qnum">Vraag 1 van 8</div>
+      <div class="label-sm" id="r1-qlabel" style="margin-bottom:4px;"></div>
+      <div class="qf-answer" id="r1-qanswer"></div>
+      <div class="timer-ring">
+        <svg width="72" height="72" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r="30" fill="none" stroke="#2e2d45" stroke-width="6"/>
+          <circle id="timer-arc" cx="36" cy="36" r="30" fill="none" stroke="#ff3d6b" stroke-width="6" stroke-dasharray="188.5" stroke-dashoffset="0" stroke-linecap="round"/>
+        </svg>
+        <div class="timer-num" id="timer-num">5</div>
+      </div>
+      <div id="r1-answers"></div>
+      <div id="r1-feedback" style="display:none;margin-top:8px;"></div>
+      <button class="btn" id="r1-next-btn" style="display:none;margin-top:12px;" onclick="nextR1Q()">Volgende vraag →</button>
+    </div>
+  </div>
+
+  <!-- SCOREBORD NA R1 -->
+  <div class="screen" id="s-round1-score">
+    <div class="screen-inner centered">
+      <span class="waiting-big" style="font-size:44px;">🏆</span>
+      <div class="waiting-title">Na Ronde 1</div>
+      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 4 rondes te gaan.</div>
+      <div class="card" style="width:100%;"><div id="scoreboard-r1"></div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" onclick="go('s-round2-intro')">Verder naar Ronde 2 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RONDE 2 INTRO -->
+  <div class="screen" id="s-round2-intro">
+    <div class="screen-inner centered">
+      <span class="round-intro-icon">📸</span>
+      <div class="round-intro-title">Ronde 2</div>
+      <div class="round-intro-accent">Unmasked</div>
+      <div class="round-intro-sub">Een foto komt langzaam in beeld — van uiterste zoom naar volledig beeld. Wie raadt het eerst?</div>
+      <div class="rules">
+        <div class="rule-row"><div class="rule-icon">🔍</div><div class="rule-text">Foto start <strong>extreem ingezoomd</strong> en zoomt langzaam uit</div></div>
+        <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text"><strong>Hoe vroeger je raadt</strong>, hoe meer punten</div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text">Maximum <strong>30 seconden</strong> per foto</div></div>
+      </div>
+      <button class="btn amber" style="margin-top:auto;" onclick="startRound2()">Start de ronde →</button>
+    </div>
+  </div>
+
+  <!-- RONDE 2 FOTO -->
+  <div class="screen" id="s-round2-q">
+    <div class="round-header">
+      <div class="round-badge">Ronde 2</div>
+      <div class="round-title">Unmasked</div>
+      <div class="round-score" id="r2-score">0 pt</div>
+    </div>
+    <div class="screen-inner" style="padding-top:16px;">
+      <div class="progress-bar"><div class="progress-fill" id="r2-progress" style="width:17%"></div></div>
+      <div class="label-sm" id="r2-qnum">Foto 1 van 6</div>
+      <div class="zoom-hint" id="r2-zoom-hint">Foto zoomt uit... raad wie het is!</div>
+      <div class="photo-stage">
+        <div class="photo-emoji" id="r2-photo">🧑</div>
+      </div>
+      <div class="zoom-bar-wrap"><div class="zoom-bar" id="r2-zoombar" style="width:0%"></div></div>
+      <div class="pts-flash" id="r2-pts-flash"></div>
+      <div class="player-grid" id="r2-players"></div>
+      <div class="r2-feedback" id="r2-feedback"></div>
+      <button class="btn" id="r2-next-btn" style="display:none;margin-top:4px;" onclick="nextR2Q()">Volgende foto →</button>
+    </div>
+  </div>
+
+  <!-- SCOREBORD NA R2 -->
+  <div class="screen" id="s-round2-score">
+    <div class="screen-inner centered">
+      <span class="waiting-big" style="font-size:44px;">📸</span>
+      <div class="waiting-title">Na Ronde 2</div>
+      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 3 rondes te gaan.</div>
+      <div class="between-rounds">
+        <div class="br-icon">🎭</div>
+        <div class="br-title">Ronde 3 komt eraan</div>
+        <div class="br-sub">In Verhoor — raad wie de dader is van het meest illegale wat iemand heeft gedaan.</div>
+      </div>
+      <div class="card" style="width:100%;"><div id="scoreboard-r2"></div></div>
+      <div style="margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn amber" onclick="go('s-home')">Ronde 3 (coming soon) →</button>
+        <button class="btn ghost" onclick="go('s-home')">Terug naar home</button>
+      </div>
+    </div>
+  </div>
+
+<script src="script.js"></script>
+</body>
+</html>

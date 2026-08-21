@@ -292,6 +292,13 @@ async function markVoiceReady(code, playerId) {
   });
 }
 
+async function markVoiceSkipped(code, playerId) {
+  return Backend.updateLobby(code, (lobby) => {
+    const p = findPlayer(lobby, playerId);
+    if (p) p.voiceSkipped = true;
+  });
+}
+
 async function voteBiecht(code, targetPlayerId, voterId) {
   return Backend.updateLobby(code, (lobby) => {
     if (!lobby.biecht) return;
@@ -326,6 +333,6 @@ window.GameOps = {
   submitDossier, submitPhoto, setPhase, addScore,
   setHotOrNot, voteHotOrNot,
   setVerhoor, submitVerhoorGuess,
-  setBiecht, markVoiceReady, voteBiecht,
+  setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht,
   setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess,
 };

@@ -460,11 +460,12 @@
       <span class="round-intro-icon" style="margin-top:16px;">🎙️</span>
       <div class="label-sm" id="biecht-record-timer">0s</div>
       <button class="btn amber" id="biecht-record-btn" onclick="startBiechtRecording()">🎙 Start opname</button>
-      <div class="label-sm" id="biecht-record-status"></div>
+      <div class="label-sm" id="biecht-record-status" style="min-height:18px;font-weight:600;"></div>
       <div id="biecht-preview-wrap" style="display:none;width:100%;margin-top:8px;">
         <audio id="biecht-preview" controls style="width:100%;"></audio>
       </div>
       <button class="btn" id="biecht-confirm-btn" style="display:none;margin-top:16px;" onclick="confirmBiechtRecording()">Verstuur biecht →</button>
+      <button class="btn ghost" onclick="skipBiechtRecording()">Lukt niet? Sla over (doe gewoon mee met stemmen)</button>
     </div>
   </div>
 

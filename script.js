@@ -1205,13 +1205,23 @@ let lastRenderedBiechtKey = '';
 
 async function startBiechtRecording() {
   const statusEl = document.getElementById('biecht-record-status');
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Microfoon aanvragen... (bevestig de toestemming in je browser)';
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const micTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Geen reactie van de microfoon — controleer je browser-instellingen.')), 8000));
+    const stream = await Promise.race([navigator.mediaDevices.getUserMedia({ audio: true }), micTimeout]);
+    const mimeType = ['audio/mp4', 'audio/webm', 'audio/ogg'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
     recordedChunks = [];
-    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
+      if (!recordedChunks.length) {
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = 'Geen geluid opgevangen. Probeer opnieuw, of sla over.';
+        document.getElementById('biecht-record-btn').style.display = 'block';
+        return;
+      }
       rawRecordingBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
       processBiechtRecording();
     };
@@ -1225,7 +1235,20 @@ async function startBiechtRecording() {
       if (recordingSeconds >= 12) stopBiechtRecording();
     }, 1000);
   } catch (e) {
+    statusEl.style.color = 'var(--red)';
     statusEl.textContent = 'Kon de microfoon niet gebruiken: ' + e.message;
+  }
+}
+
+async function skipBiechtRecording() {
+  if (Session.code && Session.playerId) {
+    try { await GameOps.markVoiceSkipped(Session.code, Session.playerId); } catch (e) { /* local demo mode */ }
+  }
+  go('s-round5-waiting');
+  if (latestLobby) {
+    const p = latestLobby.players.find(pl => pl.id === Session.playerId);
+    if (p) p.voiceSkipped = true;
+    renderBiechtWaiting(latestLobby);
   }
 }
 
@@ -1235,9 +1258,19 @@ function stopBiechtRecording() {
 }
 
 async function processBiechtRecording() {
-  document.getElementById('biecht-record-status').textContent = 'Stem wordt vervormd...';
-  distortedVoiceDataUrl = await distortVoice(rawRecordingBlob);
-  document.getElementById('biecht-record-status').textContent = 'Klaar! Beluister hieronder voor je verstuurt.';
+  const statusEl = document.getElementById('biecht-record-status');
+  statusEl.style.color = 'var(--text-muted)';
+  statusEl.textContent = 'Stem wordt vervormd...';
+  try {
+    distortedVoiceDataUrl = await distortVoice(rawRecordingBlob);
+  } catch (e) {
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = 'Kon de opname niet verwerken. Probeer opnieuw, of sla over.';
+    document.getElementById('biecht-record-btn').style.display = 'block';
+    return;
+  }
+  statusEl.style.color = 'var(--green)';
+  statusEl.textContent = 'Klaar! Beluister hieronder voor je verstuurt.';
   const audio = document.getElementById('biecht-preview');
   audio.src = distortedVoiceDataUrl;
   document.getElementById('biecht-preview-wrap').style.display = 'block';
@@ -1264,6 +1297,11 @@ async function confirmBiechtRecording() {
   await Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl);
   await GameOps.markVoiceReady(Session.code, Session.playerId);
   go('s-round5-waiting');
+  if (latestLobby) {
+    const p = latestLobby.players.find(pl => pl.id === Session.playerId);
+    if (p) p.voiceReady = true;
+    renderBiechtWaiting(latestLobby);
+  }
 }
 
 // Stemvervorming: neem het opgenomen fragment, verander toonhoogte + snelheid
@@ -1326,8 +1364,8 @@ function audioBufferToWavDataUrl(buffer) {
 function renderBiechtWaiting(lobby) {
   const notDoneEl = document.getElementById('biecht-notdone');
   if (!notDoneEl || !document.getElementById('s-round5-waiting').classList.contains('active')) return;
-  const notDone = lobby.players.filter(p => !p.voiceReady);
-  const done = lobby.players.filter(p => p.voiceReady);
+  const notDone = lobby.players.filter(p => !p.voiceReady && !p.voiceSkipped);
+  const done = lobby.players.filter(p => p.voiceReady || p.voiceSkipped);
   document.getElementById('biecht-notdone-card').style.display = notDone.length ? 'block' : 'none';
   notDoneEl.innerHTML = notDone.map(p => `<span class="pill">${p.name}</span>`).join('');
   document.getElementById('biecht-donecount').textContent = `Klaar (${done.length}/${lobby.players.length})`;
@@ -1339,6 +1377,11 @@ function renderBiechtWaiting(lobby) {
 
 async function hostStartBiechtPlayback() {
   const order = latestLobby.players.filter(p => p.voiceReady).map(p => p.id);
+  if (order.length === 0) {
+    await GameOps.setPhase(Session.code, 'round5-final');
+    showFinal();
+    return;
+  }
   const biecht = { stage: 'playback', order, index: 0, votes: {}, bonusGiven: false };
   await GameOps.setBiecht(Session.code, biecht);
   await GameOps.setPhase(Session.code, 'biecht-active');
@@ -1347,6 +1390,10 @@ async function hostStartBiechtPlayback() {
 }
 
 async function renderBiecht(lobby) {
+  if (lobby.phase === 'round5-final' && document.getElementById('s-round5-waiting').classList.contains('active')) {
+    showFinal();
+    return;
+  }
   if (lobby.phase === 'biecht-active' && document.getElementById('s-round5-waiting').classList.contains('active')) {
     go('s-round5-play');
   }

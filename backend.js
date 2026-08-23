@@ -135,9 +135,9 @@ class LocalBackend {
 // Same interface as LocalBackend. The lobby lives at `lobbies/{code}`;
 // voice recordings (too big for that single doc) live in the
 // `lobbies/{code}/voices/{playerId}` subcollection instead.
-// NOT wired in by default and not yet tested against a real project —
-// fill in firebase-config.js with real keys to activate it, then smoke-test
-// the full lobby → dossier → waiting → round flow before relying on it.
+// joinLobby and updateLobby both use runTransaction — several players
+// acting around the same moment (very normal in practice) must not
+// silently clobber each other's writes to the shared lobby document.
 
 class FirebaseBackend {
   constructor(config) {

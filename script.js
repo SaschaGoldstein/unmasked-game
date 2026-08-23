@@ -530,7 +530,7 @@ function selectR2Answer(el, chosen, correct) {
   }
   const nb = document.getElementById('r2-next-btn');
   nb.style.display = 'block';
-  if (r2Q === R2_PHOTOS.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
+  if (r2Q === r2Photos.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
 }
 
 function r2TimeUp(correct) {
@@ -545,7 +545,7 @@ function r2TimeUp(correct) {
   document.getElementById('r2-feedback').innerHTML = `<span style="color:#e24b4a;">⏱ Tijd voorbij! Het was ${correct}</span>`;
   const nb = document.getElementById('r2-next-btn');
   nb.style.display = 'block';
-  if (r2Q === R2_PHOTOS.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
+  if (r2Q === r2Photos.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
 }
 
 function nextR2Q() { r2Q++; if (r2Q < r2Photos.length) showR2Q(); else showScoreR2(); }

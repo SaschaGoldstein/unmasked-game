@@ -1556,3 +1556,30 @@ function launchConfetti() {
     setTimeout(() => el.remove(), 4500);
   }
 }
+
+// ── Sessieherstel na Spotify-login ────────
+// spotifyConnect() navigeert de hele pagina weg naar Spotify en terug,
+// wat al het in-memory Session-geheugen zou wissen. Als er iets bewaard
+// staat, zit de speler dus middenin een terugkeer van die redirect —
+// herstel de lobby en spring terug naar waar ze waren.
+
+(function restoreSessionAfterRedirect() {
+  const raw = sessionStorage.getItem('unmasked:resume');
+  if (!raw) return;
+  sessionStorage.removeItem('unmasked:resume');
+  try {
+    const saved = JSON.parse(raw);
+    if (!saved.code || !saved.playerId) return;
+    Session.code = saved.code;
+    Session.playerId = saved.playerId;
+    Session.isHost = !!saved.isHost;
+    subscribeLobby();
+    go(saved.screen || 's-home');
+    if (saved.screen === 's-round4-intro') {
+      // The Spotify token exchange (handleSpotifyRedirect in spotify.js) is
+      // still in flight at this point — re-render shortly after so the
+      // "✓ Verbonden" status picks it up without needing a lobby update.
+      setTimeout(() => renderRound4Intro(latestLobby || {}), 1500);
+    }
+  } catch (e) { /* corrupt/expired resume data — just stay on the home screen */ }
+})();

@@ -171,14 +171,17 @@ class FirebaseBackend {
   }
 
   async joinLobby(code, name) {
-    const ref = await this._doc(code);
-    const snap = await this.fs.getDoc(ref);
-    if (!snap.exists()) throw new Error('Lobby niet gevonden. Klopt de code?');
-    const lobby = snap.data();
-    if (lobby.players.length >= lobby.maxPlayers) throw new Error('Deze lobby is al vol.');
+    await this._ready;
+    const ref = this.fs.doc(this.db, 'lobbies', code);
     const playerId = makeId();
-    lobby.players.push(newPlayer(playerId, name, lobby.players.length));
-    await this.fs.updateDoc(ref, { players: lobby.players });
+    await this.fs.runTransaction(this.db, async (transaction) => {
+      const snap = await transaction.get(ref);
+      if (!snap.exists()) throw new Error('Lobby niet gevonden. Klopt de code?');
+      const lobby = snap.data();
+      if (lobby.players.length >= lobby.maxPlayers) throw new Error('Deze lobby is al vol.');
+      lobby.players.push(newPlayer(playerId, name, lobby.players.length));
+      transaction.set(ref, lobby);
+    });
     return { code, playerId };
   }
 
@@ -191,13 +194,18 @@ class FirebaseBackend {
   }
 
   async updateLobby(code, mutateFn) {
-    const ref = await this._doc(code);
-    const snap = await this.fs.getDoc(ref);
-    if (!snap.exists()) throw new Error('Lobby niet gevonden. Klopt de code?');
-    const lobby = snap.data();
-    mutateFn(lobby);
-    await this.fs.setDoc(ref, lobby);
-    return lobby;
+    await this._ready;
+    const ref = this.fs.doc(this.db, 'lobbies', code);
+    let result;
+    await this.fs.runTransaction(this.db, async (transaction) => {
+      const snap = await transaction.get(ref);
+      if (!snap.exists()) throw new Error('Lobby niet gevonden. Klopt de code?');
+      const lobby = snap.data();
+      mutateFn(lobby);
+      transaction.set(ref, lobby);
+      result = lobby;
+    });
+    return result;
   }
 
   async submitVoice(code, playerId, dataUrl) {

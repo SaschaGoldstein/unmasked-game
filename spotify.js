@@ -40,7 +40,16 @@ async function pkceChallenge(verifier) {
   return base64UrlEncode(digest);
 }
 
+const UNMASKED_RESUME_KEY = 'unmasked:resume';
+
 async function spotifyConnect() {
+  // window.location.href is a full page navigation away to Spotify's login —
+  // everything in memory (which lobby we're in, who we are) would otherwise
+  // be lost when the browser comes back. Persist it so script.js can restore
+  // the session once the page reloads with the auth code.
+  sessionStorage.setItem(UNMASKED_RESUME_KEY, JSON.stringify({
+    code: Session.code, playerId: Session.playerId, isHost: Session.isHost, screen: 's-round4-intro',
+  }));
   const verifier = randomString(64);
   sessionStorage.setItem(SPOTIFY_VERIFIER_KEY, verifier);
   const challenge = await pkceChallenge(verifier);

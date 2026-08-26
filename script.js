@@ -483,6 +483,8 @@ function renderQuickFire(lobby) {
   }
 }
 
+let qfRevealInFlight = false;
+
 function tickQFCountdown() {
   const qf = latestLobby && latestLobby.quickfire;
   if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); return; }
@@ -490,9 +492,13 @@ function tickQFCountdown() {
   const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
   document.getElementById('timer-num').textContent = Math.ceil(remaining);
   document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
-  if (remaining <= 0) {
-    clearInterval(qfCountdownTimer);
-    if (Session.isHost) hostRevealQF();
+  // Keep ticking (don't stop the interval here) so a failed reveal attempt
+  // — a dropped write on a real, imperfect mobile network — gets retried
+  // instead of leaving the round stuck forever. qfRevealInFlight stops
+  // overlapping attempts from double-scoring the same question.
+  if (remaining <= 0 && Session.isHost && !qfRevealInFlight) {
+    qfRevealInFlight = true;
+    hostRevealQF().catch(() => { /* will retry on the next tick */ }).finally(() => { qfRevealInFlight = false; });
   }
 }
 
@@ -513,7 +519,7 @@ async function hostRevealQF() {
     if (a.guess === q.correctPlayer) {
       const remaining = Math.max(0, QUICKFIRE_SECONDS - (a.at - qf.questionStartAt) / 1000);
       const pts = Math.max(1, Math.round(remaining) + 1);
-      await GameOps.addScore(Session.code, voterId, pts);
+      try { await GameOps.addScore(Session.code, voterId, pts); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ }
     }
   }
   await GameOps.setQuickfire(Session.code, { ...qf, revealed: true });
@@ -656,6 +662,8 @@ function renderPhotoRound(lobby) {
   }
 }
 
+let photoRevealInFlight = false;
+
 function tickPhotoRound() {
   const pr = latestLobby && latestLobby.photoRound;
   if (!pr || pr.revealed) { clearInterval(photoRoundTicker); return; }
@@ -665,7 +673,10 @@ function tickPhotoRound() {
   document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
   document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
   const anyCorrect = Object.values(pr.answers || {}).some(a => a.guess === photo.player);
-  if ((progress >= 1 || anyCorrect) && Session.isHost) hostRevealPhoto();
+  if ((progress >= 1 || anyCorrect) && Session.isHost && !photoRevealInFlight) {
+    photoRevealInFlight = true;
+    hostRevealPhoto().catch(() => { /* will retry on the next tick */ }).finally(() => { photoRevealInFlight = false; });
+  }
 }
 
 async function submitPhotoGuess(name) {
@@ -685,7 +696,7 @@ async function hostRevealPhoto() {
     if (a.guess === photo.player) {
       const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
       const pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
-      await GameOps.addScore(Session.code, voterId, pts);
+      try { await GameOps.addScore(Session.code, voterId, pts); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ }
     }
   }
   await GameOps.setPhotoRound(Session.code, { ...pr, revealed: true });
@@ -940,6 +951,8 @@ function renderVerhoor(lobby) {
   }
 }
 
+let verhoorRevealInFlight = false;
+
 function tickVerhoorCountdown() {
   const v = latestLobby && latestLobby.verhoor;
   if (!v || v.revealed) { clearInterval(verhoorCountdownTimer); return; }
@@ -947,9 +960,9 @@ function tickVerhoorCountdown() {
   const remaining = Math.max(0, VERHOOR_SECONDS - elapsed);
   document.getElementById('r3-timer-num').textContent = Math.ceil(remaining);
   document.getElementById('r3-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / VERHOOR_SECONDS));
-  if (remaining <= 0) {
-    clearInterval(verhoorCountdownTimer);
-    if (Session.isHost) hostRevealVerhoor();
+  if (remaining <= 0 && Session.isHost && !verhoorRevealInFlight) {
+    verhoorRevealInFlight = true;
+    hostRevealVerhoor().catch(() => { /* will retry on the next tick */ }).finally(() => { verhoorRevealInFlight = false; });
   }
 }
 
@@ -970,11 +983,11 @@ async function hostRevealVerhoor() {
     if (a.guess === q.playerId) {
       const remaining = Math.max(0, VERHOOR_SECONDS - (a.at - v.questionStartAt) / 1000);
       const pts = Math.max(1, Math.round(remaining) + 1);
-      await GameOps.addScore(Session.code, voterId, pts);
+      try { await GameOps.addScore(Session.code, voterId, pts); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ }
     }
   }
   const caught = Object.values(answers).some(a => a.guess === q.playerId);
-  if (caught) await GameOps.addScore(Session.code, q.playerId, -3);
+  if (caught) { try { await GameOps.addScore(Session.code, q.playerId, -3); } catch (e) { /* ignore */ } }
   await GameOps.setVerhoor(Session.code, { ...v, revealed: true });
   renderVerhoor({ ...latestLobby, verhoor: { ...v, revealed: true } });
 }

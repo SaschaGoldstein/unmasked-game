@@ -264,6 +264,32 @@ async function addScore(code, playerId, points) {
   });
 }
 
+async function setQuickfire(code, quickfireState) {
+  return Backend.updateLobby(code, (lobby) => { lobby.quickfire = quickfireState; });
+}
+
+async function submitQFGuess(code, playerId, guess) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.quickfire) return;
+    if (!lobby.quickfire.answers) lobby.quickfire.answers = {};
+    if (lobby.quickfire.answers[playerId]) return;
+    lobby.quickfire.answers[playerId] = { guess, at: Date.now() };
+  });
+}
+
+async function setPhotoRound(code, photoRoundState) {
+  return Backend.updateLobby(code, (lobby) => { lobby.photoRound = photoRoundState; });
+}
+
+async function submitPhotoGuess(code, playerId, guess) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.photoRound) return;
+    if (!lobby.photoRound.answers) lobby.photoRound.answers = {};
+    if (lobby.photoRound.answers[playerId]) return;
+    lobby.photoRound.answers[playerId] = { guess, at: Date.now() };
+  });
+}
+
 async function setHotOrNot(code, honState) {
   return Backend.updateLobby(code, (lobby) => { lobby.hotornot = honState; });
 }
@@ -339,6 +365,7 @@ async function submitSoundtrackDrinkGuess(code, playerId, drink) {
 
 window.GameOps = {
   submitDossier, submitPhoto, setPhase, addScore,
+  setQuickfire, submitQFGuess, setPhotoRound, submitPhotoGuess,
   setHotOrNot, voteHotOrNot,
   setVerhoor, submitVerhoorGuess,
   setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht,

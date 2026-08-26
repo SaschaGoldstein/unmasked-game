@@ -261,6 +261,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .answer-card:active { opacity: 0.85; transform: scale(0.985); }
 .answer-card.correct { border-color: var(--green); background: var(--green-bg); box-shadow: 0 0 0 1px var(--green) inset; }
 .answer-card.wrong { border-color: #8b1a1a; background: var(--red-bg); opacity: 0.6; }
+.answer-card.pending { border-color: var(--accent2); box-shadow: 0 0 0 1px var(--accent2) inset; }
 .answer-text { font-size: 16px; color: var(--text); line-height: 1.4; font-weight: 500; }
 .result-correct { font-size: 14px; color: var(--green); margin-top: 6px; font-weight: 600; }
 .result-wrong { font-size: 14px; color: var(--red); margin-top: 6px; font-weight: 600; }

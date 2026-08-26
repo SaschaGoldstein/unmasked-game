@@ -82,8 +82,6 @@ const R4_CLUE_TEMPLATES = {
 
 let dossierQ = 0;
 let pendingPhotoDataUrl = null;
-let r1Q = 0, r1Score = 0, r1Timer = null, r1Time = 5, r1Answered = false, r1Questions = [];
-let r2Q = 0, r2Score = 0, r2ZoomTimer = null, r2Answered = false, r2Photos = [], r2UsePlayers = PLAYERS;
 let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Questions = [], r4Timeouts = [], r4UsePlayers = PLAYERS;
 
 // ── Multiplayer session ───────────────────
@@ -104,21 +102,90 @@ function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
 function pickSessionQuestions() {
-  const pools = PREFERENCE_QS.map(q => {
-    const real = (latestLobby ? latestLobby.players : [])
+  const lobbyPlayers = latestLobby ? latestLobby.players : [];
+  const realPlayersFormatted = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
+  const realPools = PREFERENCE_QS.map(q => {
+    const real = lobbyPlayers
       .filter(p => p.dossierAnswers && p.dossierAnswers[q] && p.dossierAnswers[q].trim())
       .map(p => ({ text: p.dossierAnswers[q], player: p.name }));
-    return { label: q, answers: real.length >= 2 ? real : DEMO_ANSWERS[q] };
+    return { label: q, answers: real };
+  }).filter(p => p.answers.length >= 2);
+  // Once there's a real group, never mix in demo names — only ask about
+  // questions enough real players actually answered, however many that is.
+  const useReal = lobbyPlayers.length >= 2 && realPools.length > 0;
+  const pools = useReal ? realPools : PREFERENCE_QS.map(q => ({ label: q, answers: DEMO_ANSWERS[q] }));
+  const usePlayers = useReal ? realPlayersFormatted : PLAYERS;
+  // Resolve one specific answer per question now, once, so every player's
+  // screen shows the exact same quote — not a per-client random pick.
+  const questions = pools.map(p => {
+    const chosen = p.answers[Math.floor(Math.random() * p.answers.length)];
+    return { label: p.label, answerText: chosen.text, correctPlayer: chosen.player };
   });
-  return shuffle(pools);
+  return { questions: shuffle(questions), usePlayers };
+}
+
+// ── Robuuste fase-synchronisatie ──────────
+// Firestore's onSnapshot garandeert enkel de MEEST RECENTE staat aan
+// trage luisteraars — tussentijdse schrijfacties kunnen samengevoegd
+// worden en dus nooit aankomen. Elke ronde had voorheen zijn eigen
+// "if (phase === X && dit scherm actief) ga naar Y"-check, die precies
+// dát ene tussenschermpje moest zien om ooit te vuren; miste een speler
+// dat momentopname, dan bleef die voorgoed hangen op een oud scherm.
+// Deze functie kijkt in plaats daarvan altijd naar de ACTUELE fase en
+// springt gewoon rechtstreeks naar het juiste scherm, ongeacht hoeveel
+// tussenstappen er onderweg zijn overgeslagen.
+
+const SCREEN_SEQUENCE = [
+  's-home', 's-create', 's-lobby', 's-join', 's-dossier-photo', 's-photo-mask', 's-dossier', 's-waiting',
+  's-round1-intro', 's-round1-q', 's-round1-score',
+  's-round2-intro', 's-round2-q', 's-round2-score',
+  's-hotornot',
+  's-round3-intro', 's-round3-q', 's-round3-score',
+  's-round4-intro', 's-round4-q', 's-round4-soundtrack-q', 's-round4-score',
+  's-round5-intro', 's-round5-record', 's-round5-waiting', 's-round5-play', 's-round5-vote', 's-round5-final',
+];
+
+const PHASE_SYNC = {
+  'round1-intro': { screen: 's-round1-intro', action: () => go('s-round1-intro') },
+  'quickfire-active': { screen: 's-round1-q', action: () => go('s-round1-q') },
+  'quickfire-score': { screen: 's-round1-score', action: () => showScoreR1() },
+  'photoround-active': { screen: 's-round2-q', action: () => go('s-round2-q') },
+  'photoround-score': { screen: 's-round2-score', action: () => showScoreR2() },
+  'hotornot': { screen: 's-hotornot', action: () => go('s-hotornot') },
+  'round3-intro': { screen: 's-round3-intro', action: () => go('s-round3-intro') },
+  'verhoor-active': { screen: 's-round3-q', action: () => go('s-round3-q') },
+  'round3-score': { screen: 's-round3-score', action: () => showScoreR3() },
+  'round4-whoami': { screen: 's-round4-q', action: () => startRound4() },
+  'soundtrack-active': { screen: 's-round4-soundtrack-q', action: () => go('s-round4-soundtrack-q') },
+  'round4-score': { screen: 's-round4-score', action: () => showScoreR4() },
+  'biecht-active': { screen: 's-round5-play', action: () => go('s-round5-play') },
+  'round5-final': { screen: 's-round5-final', action: () => showFinal() },
+  'final': { screen: 's-round5-final', action: () => showFinal() },
+};
+
+function syncToLobbyPhase(lobby) {
+  const sync = PHASE_SYNC[lobby.phase];
+  if (!sync) return;
+  const activeEl = document.querySelector('.screen.active');
+  if (!activeEl) return;
+  const curIdx = SCREEN_SEQUENCE.indexOf(activeEl.id);
+  const targetIdx = SCREEN_SEQUENCE.indexOf(sync.screen);
+  // Alleen voorwaarts springen — nooit iemand terugduwen die zelf al
+  // (op eigen tempo) verder geraakt is dan deze fase aangeeft.
+  if (targetIdx > curIdx) sync.action();
 }
 
 function subscribeLobby() {
   if (Session.unsub) Session.unsub();
   Session.unsub = Backend.subscribe(Session.code, (lobby) => {
     latestLobby = lobby;
+    syncToLobbyPhase(lobby);
     renderLobbyScreen(lobby);
     renderWaitingScreen(lobby);
+    renderRound1Intro(lobby);
+    renderQuickFire(lobby);
+    renderRound2Intro(lobby);
+    renderPhotoRound(lobby);
     renderHotOrNot(lobby);
     renderVerhoor(lobby);
     renderBiechtWaiting(lobby);
@@ -193,10 +260,6 @@ function renderWaitingScreen(lobby) {
   const allDone = lobby.players.length > 0 && notDone.length === 0;
   document.getElementById('waiting-start-btn').style.display = Session.isHost && allDone ? 'block' : 'none';
   document.getElementById('waiting-nothost-msg').style.display = Session.isHost ? 'none' : 'block';
-
-  if (lobby.phase === 'round1-intro' && document.getElementById('s-waiting').classList.contains('active')) {
-    go('s-round1-intro');
-  }
 }
 
 async function hostStartGame() {
@@ -347,85 +410,128 @@ async function submitDossierAndWait() {
   go('s-waiting');
 }
 
-function startRound1() {
-  r1Q = 0; r1Score = 0;
-  r1Questions = pickSessionQuestions();
-  showR1Q();
-  go('s-round1-q');
+// ── Ronde 1: Quick Fire (live, host-gestuurd) ──
+// Zelfde patroon als Ronde 3: lobby.quickfire is de bron van waarheid,
+// de host beheert timing en kent scores toe zodat niemand dubbel telt.
+
+const QUICKFIRE_SECONDS = 5;
+let qfCountdownTimer = null;
+let lastRenderedQFIndex = -1;
+
+function renderRound1Intro(lobby) {
+  const introScreen = document.getElementById('s-round1-intro');
+  if (!introScreen) return;
+  document.getElementById('r1intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r1intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
 }
 
-function showR1Q() {
-  r1Answered = false;
-  clearInterval(r1Timer);
-  const q = r1Questions[r1Q];
-  const randAns = q.answers[Math.floor(Math.random() * q.answers.length)];
-  document.getElementById('r1-qnum').textContent = `Vraag ${r1Q + 1} van ${r1Questions.length}`;
-  document.getElementById('r1-progress').style.width = Math.round(((r1Q + 1) / r1Questions.length) * 100) + '%';
-  document.getElementById('r1-score').textContent = r1Score + ' pt';
+async function hostStartRound1() {
+  const picked = pickSessionQuestions();
+  const quickfire = { questions: picked.questions, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
+  await GameOps.setQuickfire(Session.code, quickfire);
+  await GameOps.setPhase(Session.code, 'quickfire-active');
+  go('s-round1-q');
+  renderQuickFire({ ...latestLobby, quickfire, phase: 'quickfire-active' });
+}
+
+function renderQuickFire(lobby) {
+  if (!lobby.quickfire || !document.getElementById('s-round1-q').classList.contains('active')) return;
+
+  const qf = lobby.quickfire;
+  const q = qf.questions[qf.index];
+  document.getElementById('r1-qnum').textContent = `Vraag ${qf.index + 1} van ${qf.questions.length}`;
+  document.getElementById('r1-progress').style.width = Math.round(((qf.index + 1) / qf.questions.length) * 100) + '%';
   document.getElementById('r1-qlabel').textContent = q.label;
-  document.getElementById('r1-qanswer').textContent = '"' + randAns.text + '"';
-  document.getElementById('r1-feedback').style.display = 'none';
-  document.getElementById('r1-next-btn').style.display = 'none';
+  document.getElementById('r1-qanswer').textContent = '"' + q.answerText + '"';
+
+  if (qf.index !== lastRenderedQFIndex) {
+    lastRenderedQFIndex = qf.index;
+    clearInterval(qfCountdownTimer);
+    qfCountdownTimer = setInterval(() => tickQFCountdown(), 200);
+    tickQFCountdown();
+  }
+
+  const myGuess = (qf.answers || {})[Session.playerId];
   const wrap = document.getElementById('r1-answers');
   wrap.innerHTML = '';
-  shuffle(PLAYERS).forEach(p => {
+  qf.usePlayers.forEach(p => {
     const d = document.createElement('div');
     d.className = 'answer-card';
+    if (qf.revealed) {
+      if (p.name === q.correctPlayer) d.classList.add('correct');
+      else if (myGuess && myGuess.guess === p.name) d.classList.add('wrong');
+    } else if (myGuess && myGuess.guess === p.name) {
+      d.classList.add('pending');
+    }
     d.innerHTML = `<div class="answer-text">${p.name}</div>`;
-    d.onclick = () => selectR1Answer(d, p.name, randAns.player);
+    if (!myGuess && !qf.revealed) d.onclick = () => submitQFGuess(p.name);
     wrap.appendChild(d);
   });
-  r1Time = 5;
-  document.getElementById('timer-num').textContent = r1Time;
-  document.getElementById('timer-arc').style.strokeDashoffset = '0';
-  r1Timer = setInterval(() => {
-    r1Time--;
-    document.getElementById('timer-num').textContent = r1Time;
-    document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - r1Time / 5));
-    if (r1Time <= 0) { clearInterval(r1Timer); if (!r1Answered) r1TimeUp(randAns.player); }
-  }, 1000);
-}
 
-function selectR1Answer(el, chosen, correct) {
-  if (r1Answered) return;
-  r1Answered = true;
-  clearInterval(r1Timer);
-  document.querySelectorAll('#r1-answers .answer-card').forEach(c => {
-    c.onclick = null;
-    if (c.querySelector('.answer-text').textContent === correct) c.classList.add('correct');
-  });
-  const fb = document.getElementById('r1-feedback');
-  fb.style.display = 'block';
-  if (chosen === correct) {
-    el.classList.add('correct');
-    const pts = Math.max(1, r1Time + 1);
-    r1Score += pts;
-    document.getElementById('r1-score').textContent = r1Score + ' pt';
-    fb.innerHTML = `<div class="result-correct">✓ Correct! +${pts} punten</div>`;
-  } else {
-    el.classList.add('wrong');
-    fb.innerHTML = `<div class="result-wrong">✗ Fout — het was ${correct}</div>`;
+  const revealBox = document.getElementById('r1-reveal');
+  revealBox.style.display = qf.revealed ? 'block' : 'none';
+  if (qf.revealed) {
+    clearInterval(qfCountdownTimer);
+    const correctVoters = Object.entries(qf.answers || {}).filter(([, a]) => a.guess === q.correctPlayer).map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
+    document.getElementById('r1-reveal-card').innerHTML = `
+      <div class="card-title">Het was ${q.correctPlayer}!</div>
+      <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => p.name).join(', ')}` : 'Niemand raadde het deze keer.'}</div>`;
+    const nextBtn = document.getElementById('r1-next-btn');
+    nextBtn.style.display = Session.isHost ? 'block' : 'none';
+    nextBtn.textContent = qf.index === qf.questions.length - 1 ? 'Bekijk scorebord →' : 'Volgende vraag →';
+    document.getElementById('r1-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   }
-  const nb = document.getElementById('r1-next-btn');
-  nb.style.display = 'block';
-  if (r1Q === r1Questions.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR1; }
 }
 
-function r1TimeUp(correct) {
-  r1Answered = true;
-  document.querySelectorAll('#r1-answers .answer-card').forEach(c => {
-    c.onclick = null;
-    if (c.querySelector('.answer-text').textContent === correct) c.classList.add('correct');
-  });
-  const fb = document.getElementById('r1-feedback');
-  fb.style.display = 'block';
-  fb.innerHTML = `<div class="result-wrong">⏱ Te laat! Het was ${correct}</div>`;
-  const nb = document.getElementById('r1-next-btn');
-  nb.style.display = 'block';
-  if (r1Q === r1Questions.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR1; }
+function tickQFCountdown() {
+  const qf = latestLobby && latestLobby.quickfire;
+  if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); return; }
+  const elapsed = (Date.now() - qf.questionStartAt) / 1000;
+  const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
+  document.getElementById('timer-num').textContent = Math.ceil(remaining);
+  document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
+  if (remaining <= 0) {
+    clearInterval(qfCountdownTimer);
+    if (Session.isHost) hostRevealQF();
+  }
 }
 
-function nextR1Q() { r1Q++; if (r1Q < r1Questions.length) showR1Q(); else showScoreR1(); }
+async function submitQFGuess(name) {
+  if (!latestLobby || !latestLobby.quickfire) return;
+  await GameOps.submitQFGuess(Session.code, Session.playerId, name);
+  const qf = latestLobby.quickfire;
+  const answers = { ...(qf.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
+  renderQuickFire({ ...latestLobby, quickfire: { ...qf, answers } });
+}
+
+async function hostRevealQF() {
+  const qf = latestLobby.quickfire;
+  if (!qf || qf.revealed) return;
+  const q = qf.questions[qf.index];
+  const answers = qf.answers || {};
+  for (const [voterId, a] of Object.entries(answers)) {
+    if (a.guess === q.correctPlayer) {
+      const remaining = Math.max(0, QUICKFIRE_SECONDS - (a.at - qf.questionStartAt) / 1000);
+      const pts = Math.max(1, Math.round(remaining) + 1);
+      await GameOps.addScore(Session.code, voterId, pts);
+    }
+  }
+  await GameOps.setQuickfire(Session.code, { ...qf, revealed: true });
+  renderQuickFire({ ...latestLobby, quickfire: { ...qf, revealed: true } });
+}
+
+async function hostNextQF() {
+  const qf = latestLobby.quickfire;
+  const nextIndex = qf.index + 1;
+  if (nextIndex >= qf.questions.length) {
+    await GameOps.setPhase(Session.code, 'quickfire-score');
+    showScoreR1();
+    return;
+  }
+  const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+  await GameOps.setQuickfire(Session.code, next);
+  renderQuickFire({ ...latestLobby, quickfire: next });
+}
 
 function maskSvgHtml() {
   return `<svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg">
@@ -435,120 +541,169 @@ function maskSvgHtml() {
   </svg>`;
 }
 
+// ── Ronde 2: Unmasked (live, host-gestuurd) ──
+// Zelfde patroon als Ronde 1/3: lobby.photoRound is de bron van waarheid.
+// De zoom-animatie wordt lokaal getekend op basis van de gedeelde
+// questionStartAt-tijdstempel, zodat iedereen dezelfde foto op hetzelfde
+// tempo ziet uitzoomen, ongeacht wanneer elk toestel het snapshot ontving.
+
+const PHOTOROUND_SECONDS = 30;
+let photoRoundTicker = null;
+let lastRenderedPhotoIndex = -1;
+
+function renderRound2Intro(lobby) {
+  const introScreen = document.getElementById('s-round2-intro');
+  if (!introScreen) return;
+  document.getElementById('r2intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r2intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+}
+
 function pickRound2Photos() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const withPhotos = lobbyPlayers.filter(p => p.photo && p.photo.url);
   if (withPhotos.length >= 3) {
-    r2UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
-    return shuffle(withPhotos).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name }));
+    return {
+      usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
+      photos: shuffle(withPhotos).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
+    };
   }
-  r2UsePlayers = PLAYERS;
-  return shuffle(R2_PHOTOS);
+  return { usePlayers: PLAYERS, photos: shuffle(R2_PHOTOS) };
 }
 
-function startRound2() { r2Q = 0; r2Score = 0; r2Photos = pickRound2Photos(); showR2Q(); go('s-round2-q'); }
+async function hostStartRound2() {
+  const picked = pickRound2Photos();
+  const photoRound = { photos: picked.photos, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
+  await GameOps.setPhotoRound(Session.code, photoRound);
+  await GameOps.setPhase(Session.code, 'photoround-active');
+  go('s-round2-q');
+  renderPhotoRound({ ...latestLobby, photoRound, phase: 'photoround-active' });
+}
 
-function showR2Q() {
-  r2Answered = false;
-  clearInterval(r2ZoomTimer);
-  const photo = r2Photos[r2Q];
-  document.getElementById('r2-qnum').textContent = `Foto ${r2Q + 1} van ${r2Photos.length}`;
-  document.getElementById('r2-progress').style.width = Math.round(((r2Q + 1) / r2Photos.length) * 100) + '%';
-  document.getElementById('r2-score').textContent = r2Score + ' pt';
-  document.getElementById('r2-feedback').textContent = '';
-  document.getElementById('r2-pts-flash').textContent = '';
-  document.getElementById('r2-next-btn').style.display = 'none';
-  document.getElementById('r2-zoom-hint').textContent = 'Foto zoomt uit... raad wie het is!';
+function renderPhotoRound(lobby) {
+  if (!lobby.photoRound || !document.getElementById('s-round2-q').classList.contains('active')) return;
+
+  const pr = lobby.photoRound;
+  const photo = pr.photos[pr.index];
   const photoEl = document.getElementById('r2-photo');
-  if (photo.photo) {
-    photoEl.textContent = '';
-    photoEl.style.backgroundImage = `url(${photo.photo})`;
-    photoEl.style.backgroundSize = 'cover';
-    photoEl.style.backgroundPosition = 'center';
-    const m = photo.mask;
-    const maskHtml = m ? `<div class="r2-mask" style="left:${m.maskX}%;top:${m.maskY}%;width:${m.maskScale}%;">${maskSvgHtml()}</div>` : '';
-    photoEl.innerHTML = maskHtml;
-  } else {
-    photoEl.style.backgroundImage = 'none';
-    photoEl.textContent = photo.emoji;
+  document.getElementById('r2-qnum').textContent = `Foto ${pr.index + 1} van ${pr.photos.length}`;
+  document.getElementById('r2-progress').style.width = Math.round(((pr.index + 1) / pr.photos.length) * 100) + '%';
+
+  if (pr.index !== lastRenderedPhotoIndex) {
+    lastRenderedPhotoIndex = pr.index;
+    document.getElementById('r2-feedback').textContent = '';
+    document.getElementById('r2-pts-flash').textContent = '';
+    document.getElementById('r2-zoom-hint').textContent = 'Foto zoomt uit... raad wie het is!';
+    photoEl.style.transition = 'none';
+    if (photo.photo) {
+      photoEl.textContent = '';
+      photoEl.style.backgroundImage = `url(${photo.photo})`;
+      photoEl.style.backgroundSize = 'cover';
+      photoEl.style.backgroundPosition = 'center';
+      const m = photo.mask;
+      photoEl.innerHTML = m ? `<div class="r2-mask" style="left:${m.maskX}%;top:${m.maskY}%;width:${m.maskScale}%;">${maskSvgHtml()}</div>` : '';
+    } else {
+      photoEl.style.backgroundImage = 'none';
+      photoEl.textContent = photo.emoji;
+    }
+    clearInterval(photoRoundTicker);
+    photoRoundTicker = setInterval(() => tickPhotoRound(), 100);
+    tickPhotoRound();
   }
-  photoEl.style.transition = 'none';
-  photoEl.style.transform = 'scale(8)';
-  const zoomBar = document.getElementById('r2-zoombar');
-  zoomBar.style.transition = 'none';
-  zoomBar.style.width = '0%';
+
+  const myGuess = (pr.answers || {})[Session.playerId];
   const wrap = document.getElementById('r2-players');
   wrap.innerHTML = '';
-  shuffle(r2UsePlayers).forEach(p => {
+  pr.usePlayers.forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
+    if (pr.revealed) {
+      if (p.name === photo.player) d.classList.add('correct');
+      else if (myGuess && myGuess.guess === p.name) d.classList.add('wrong');
+    } else if (myGuess && myGuess.guess === p.name) {
+      d.classList.add('pending');
+    }
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    d.onclick = () => selectR2Answer(d, p.name, photo.player);
+    if (!myGuess && !pr.revealed) d.onclick = () => submitPhotoGuess(p.name);
     wrap.appendChild(d);
   });
-  setTimeout(() => {
-    photoEl.style.transition = 'transform 30s linear';
+
+  const nb = document.getElementById('r2-next-btn');
+  if (pr.revealed) {
+    clearInterval(photoRoundTicker);
+    photoEl.style.transition = 'transform 0.5s ease';
     photoEl.style.transform = 'scale(1)';
-    zoomBar.style.transition = 'width 30s linear';
-    zoomBar.style.width = '100%';
-  }, 100);
-  let elapsed = 0;
-  r2ZoomTimer = setInterval(() => {
-    elapsed++;
-    if (elapsed >= 30) { clearInterval(r2ZoomTimer); if (!r2Answered) r2TimeUp(photo.player); }
-  }, 1000);
-}
-
-function selectR2Answer(el, chosen, correct) {
-  if (r2Answered) return;
-  r2Answered = true;
-  clearInterval(r2ZoomTimer);
-  const photoEl = document.getElementById('r2-photo');
-  photoEl.style.transition = 'transform 0.5s ease';
-  photoEl.style.transform = 'scale(1)';
-  document.getElementById('r2-zoom-hint').textContent = correct + ' was het!';
-  document.querySelectorAll('#r2-players .player-btn').forEach(b => {
-    b.onclick = null;
-    if (b.querySelector('.pb-name').textContent === correct) b.classList.add('correct');
-  });
-  const flash = document.getElementById('r2-pts-flash');
-  const fb = document.getElementById('r2-feedback');
-  if (chosen === correct) {
-    el.classList.add('correct');
-    const zoomPct = parseFloat(document.getElementById('r2-zoombar').style.width) || 0;
-    const pts = Math.max(1, Math.round((1 - (zoomPct / 100)) * 8) + 2);
-    r2Score += pts;
-    document.getElementById('r2-score').textContent = r2Score + ' pt';
-    flash.style.color = 'var(--accent2)';
-    flash.textContent = '+' + pts + ' punten!';
-    fb.innerHTML = `<span style="color:var(--green);">✓ Correct! Hoe vroeger je raadt, hoe meer punten.</span>`;
+    document.getElementById('r2-zoombar').style.width = '100%';
+    document.getElementById('r2-zoom-hint').textContent = photo.player + ' was het!';
+    const correctVoters = Object.entries(pr.answers || {}).filter(([, a]) => a.guess === photo.player)
+      .map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
+    const flash = document.getElementById('r2-pts-flash');
+    const fb = document.getElementById('r2-feedback');
+    if (correctVoters.length) {
+      flash.style.color = 'var(--accent2)';
+      flash.textContent = 'Juist geraden!';
+      fb.innerHTML = `<span style="color:var(--green);">✓ ${correctVoters.map(p => p.name).join(', ')} had het goed</span>`;
+    } else {
+      flash.style.color = '#e24b4a';
+      flash.textContent = '0 punten';
+      fb.innerHTML = `<span style="color:#e24b4a;">⏱ Niemand raadde het — het was ${photo.player}</span>`;
+    }
+    nb.style.display = Session.isHost ? 'block' : 'none';
+    nb.textContent = pr.index === pr.photos.length - 1 ? 'Bekijk scorebord →' : 'Volgende foto →';
+    document.getElementById('r2-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   } else {
-    el.classList.add('wrong');
-    flash.style.color = '#e24b4a';
-    flash.textContent = '0 punten';
-    fb.innerHTML = `<span style="color:#e24b4a;">✗ Fout — het was ${correct}</span>`;
+    nb.style.display = 'none';
+    document.getElementById('r2-wait-reveal-msg').style.display = 'none';
   }
-  const nb = document.getElementById('r2-next-btn');
-  nb.style.display = 'block';
-  if (r2Q === r2Photos.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
 }
 
-function r2TimeUp(correct) {
-  r2Answered = true;
-  document.getElementById('r2-zoom-hint').textContent = correct + ' was het!';
-  document.querySelectorAll('#r2-players .player-btn').forEach(b => {
-    b.onclick = null;
-    if (b.querySelector('.pb-name').textContent === correct) b.classList.add('correct');
-  });
-  document.getElementById('r2-pts-flash').textContent = '0 punten';
-  document.getElementById('r2-pts-flash').style.color = '#e24b4a';
-  document.getElementById('r2-feedback').innerHTML = `<span style="color:#e24b4a;">⏱ Tijd voorbij! Het was ${correct}</span>`;
-  const nb = document.getElementById('r2-next-btn');
-  nb.style.display = 'block';
-  if (r2Q === r2Photos.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR2; }
+function tickPhotoRound() {
+  const pr = latestLobby && latestLobby.photoRound;
+  if (!pr || pr.revealed) { clearInterval(photoRoundTicker); return; }
+  const photo = pr.photos[pr.index];
+  const elapsed = (Date.now() - pr.questionStartAt) / 1000;
+  const progress = Math.min(1, elapsed / PHOTOROUND_SECONDS);
+  document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
+  document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
+  const anyCorrect = Object.values(pr.answers || {}).some(a => a.guess === photo.player);
+  if ((progress >= 1 || anyCorrect) && Session.isHost) hostRevealPhoto();
 }
 
-function nextR2Q() { r2Q++; if (r2Q < r2Photos.length) showR2Q(); else showScoreR2(); }
+async function submitPhotoGuess(name) {
+  if (!latestLobby || !latestLobby.photoRound) return;
+  await GameOps.submitPhotoGuess(Session.code, Session.playerId, name);
+  const pr = latestLobby.photoRound;
+  const answers = { ...(pr.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
+  renderPhotoRound({ ...latestLobby, photoRound: { ...pr, answers } });
+}
+
+async function hostRevealPhoto() {
+  const pr = latestLobby.photoRound;
+  if (!pr || pr.revealed) return;
+  const photo = pr.photos[pr.index];
+  const answers = pr.answers || {};
+  for (const [voterId, a] of Object.entries(answers)) {
+    if (a.guess === photo.player) {
+      const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
+      const pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
+      await GameOps.addScore(Session.code, voterId, pts);
+    }
+  }
+  await GameOps.setPhotoRound(Session.code, { ...pr, revealed: true });
+  renderPhotoRound({ ...latestLobby, photoRound: { ...pr, revealed: true } });
+}
+
+async function hostNextPhoto() {
+  const pr = latestLobby.photoRound;
+  const nextIndex = pr.index + 1;
+  if (nextIndex >= pr.photos.length) {
+    await GameOps.setPhase(Session.code, 'photoround-score');
+    showScoreR2();
+    return;
+  }
+  const next = { ...pr, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+  await GameOps.setPhotoRound(Session.code, next);
+  renderPhotoRound({ ...latestLobby, photoRound: next });
+}
 
 async function pushRoundScore(points) {
   if (Session.code && Session.playerId && points) {
@@ -585,16 +740,14 @@ function buildScoreboard(containerId, myScoreFallback) {
     </div>`).join('');
 }
 
-async function showScoreR1() {
-  clearInterval(r1Timer);
-  await pushRoundScore(r1Score);
-  buildScoreboard('scoreboard-r1', r1Score);
+function showScoreR1() {
+  clearInterval(qfCountdownTimer);
+  buildScoreboard('scoreboard-r1', 0);
   go('s-round1-score');
 }
-async function showScoreR2() {
-  clearInterval(r2ZoomTimer);
-  await pushRoundScore(r2Score);
-  buildScoreboard('scoreboard-r2', r1Score + r2Score);
+function showScoreR2() {
+  clearInterval(photoRoundTicker);
+  buildScoreboard('scoreboard-r2', 0);
   document.getElementById('r2score-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r2score-wait-msg').style.display = Session.isHost ? 'none' : 'block';
   go('s-round2-score');
@@ -627,11 +780,6 @@ async function hostStartHotOrNot() {
 function renderHotOrNot(lobby) {
   const photoEl = document.getElementById('hon-photo');
   if (!photoEl) return;
-
-  if (lobby.phase === 'round3-intro' && document.getElementById('s-hotornot').classList.contains('active')) {
-    go('s-round3-intro');
-    return;
-  }
   if (!lobby.hotornot || !document.getElementById('s-hotornot').classList.contains('active')) return;
 
   const hon = lobby.hotornot;
@@ -738,16 +886,8 @@ async function hostStartVerhoor() {
 }
 
 function renderVerhoor(lobby) {
-  if (lobby.phase === 'verhoor-active' && document.getElementById('s-round3-intro').classList.contains('active')) {
-    go('s-round3-q');
-  }
   document.getElementById('r3intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r3intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
-
-  if (lobby.phase === 'round3-score' && document.getElementById('s-round3-q').classList.contains('active')) {
-    showScoreR3();
-    return;
-  }
   if (!lobby.verhoor || !document.getElementById('s-round3-q').classList.contains('active')) return;
 
   const v = lobby.verhoor;
@@ -892,11 +1032,6 @@ function renderRound4Intro(lobby) {
   document.getElementById('r4intro-spotify-status').textContent = !spotifyOk ? '' : (connected ? '✓ Verbonden met Spotify' : 'Nog niet verbonden — zonder Spotify gebruikt deze ronde tekstaanwijzingen.');
   document.getElementById('r4intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r4intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
-
-  if (introScreen.classList.contains('active')) {
-    if (lobby.phase === 'round4-whoami') { startRound4(); return; }
-    if (lobby.phase === 'soundtrack-active') { go('s-round4-soundtrack-q'); }
-  }
 }
 
 async function hostStartRound4() {
@@ -1044,7 +1179,7 @@ async function showScoreR4() {
   clearInterval(r4Timer);
   r4Timeouts.forEach(t => clearTimeout(t));
   await pushRoundScore(r4Score);
-  buildScoreboard('scoreboard-r4', r1Score + r2Score + r4Score);
+  buildScoreboard('scoreboard-r4', r4Score);
   go('s-round4-score');
 }
 
@@ -1074,10 +1209,6 @@ async function hostPlaySoundtrack() {
 }
 
 function renderSoundtrack(lobby) {
-  if (lobby.phase === 'round4-score' && document.getElementById('s-round4-soundtrack-q').classList.contains('active')) {
-    showScoreR4();
-    return;
-  }
   if (!lobby.soundtrack || !document.getElementById('s-round4-soundtrack-q').classList.contains('active')) return;
 
   const st = lobby.soundtrack;
@@ -1390,13 +1521,6 @@ async function hostStartBiechtPlayback() {
 }
 
 async function renderBiecht(lobby) {
-  if (lobby.phase === 'round5-final' && document.getElementById('s-round5-waiting').classList.contains('active')) {
-    showFinal();
-    return;
-  }
-  if (lobby.phase === 'biecht-active' && document.getElementById('s-round5-waiting').classList.contains('active')) {
-    go('s-round5-play');
-  }
   if (!lobby.biecht) return;
   const b = lobby.biecht;
 
@@ -1504,7 +1628,7 @@ function showFinal() {
   r4Timeouts.forEach(t => clearTimeout(t));
   let all = liveStandings();
   if (!all) {
-    const myScore = r1Score + r2Score + r4Score;
+    const myScore = r4Score;
     const others = PLAYERS.filter(p => p.name !== 'Sander').map(p => ({ name: p.name, pts: rand(14, 46), color: p.color }));
     all = [{ name: 'Sander (jij)', pts: myScore, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
   }

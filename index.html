@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=8" />
+  <link rel="stylesheet" href="style.css?v=9" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -149,13 +149,14 @@
       <span class="round-intro-icon">⚡</span>
       <div class="round-intro-title">Ronde 1</div>
       <div class="round-intro-accent">Quick Fire</div>
-      <div class="round-intro-sub">Een antwoord flitst voorbij — raad zo snel mogelijk van wie het is. Hoe sneller, hoe meer punten.</div>
+      <div class="round-intro-sub">Een antwoord flitst voorbij — raad zo snel mogelijk van wie het is. De hele groep ziet dezelfde vraag tegelijk.</div>
       <div class="rules">
-        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>5 seconden</strong> per antwoord</div></div>
-        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Snelheidsbonus: <strong>1e = 3pt · 2e = 2pt · 3e = 1pt</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>5 seconden</strong> per antwoord, live voor iedereen</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Hoe sneller je raadt, <strong>hoe meer punten</strong></div></div>
         <div class="rule-row"><div class="rule-icon">🎯</div><div class="rule-text">Iedereen speelt <strong>simultaan</strong> op zijn telefoon</div></div>
       </div>
-      <button class="btn amber" style="margin-top:auto;" onclick="startRound1()">Start de ronde →</button>
+      <button class="btn amber" id="r1intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartRound1()">Start de ronde →</button>
+      <div class="label-sm" id="r1intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
 
@@ -164,7 +165,6 @@
     <div class="round-header">
       <div class="round-badge">Ronde 1</div>
       <div class="round-title">Quick Fire</div>
-      <div class="round-score" id="r1-score">0 pt</div>
     </div>
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="r1-progress" style="width:12%"></div></div>
@@ -179,8 +179,11 @@
         <div class="timer-num" id="timer-num">5</div>
       </div>
       <div id="r1-answers"></div>
-      <div id="r1-feedback" style="display:none;margin-top:8px;"></div>
-      <button class="btn" id="r1-next-btn" style="display:none;margin-top:12px;" onclick="nextR1Q()">Volgende vraag →</button>
+      <div id="r1-reveal" style="display:none;width:100%;">
+        <div class="card" id="r1-reveal-card"></div>
+        <button class="btn amber" id="r1-next-btn" style="display:none;" onclick="hostNextQF()">Volgende vraag →</button>
+        <div class="label-sm" id="r1-wait-reveal-msg" style="display:none;">Wachten op de host...</div>
+      </div>
     </div>
   </div>
 
@@ -203,13 +206,14 @@
       <span class="round-intro-icon">📸</span>
       <div class="round-intro-title">Ronde 2</div>
       <div class="round-intro-accent">Unmasked</div>
-      <div class="round-intro-sub">Een foto komt langzaam in beeld — van uiterste zoom naar volledig beeld. Wie raadt het eerst?</div>
+      <div class="round-intro-sub">Een foto komt langzaam in beeld — van uiterste zoom naar volledig beeld. De hele groep kijkt tegelijk mee.</div>
       <div class="rules">
-        <div class="rule-row"><div class="rule-icon">🔍</div><div class="rule-text">Foto start <strong>extreem ingezoomd</strong> en zoomt langzaam uit</div></div>
+        <div class="rule-row"><div class="rule-icon">🔍</div><div class="rule-text">Foto start <strong>extreem ingezoomd</strong> en zoomt langzaam uit, live voor iedereen</div></div>
         <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text"><strong>Hoe vroeger je raadt</strong>, hoe meer punten</div></div>
         <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text">Maximum <strong>30 seconden</strong> per foto</div></div>
       </div>
-      <button class="btn amber" style="margin-top:auto;" onclick="startRound2()">Start de ronde →</button>
+      <button class="btn amber" id="r2intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartRound2()">Start de ronde →</button>
+      <div class="label-sm" id="r2intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
 
@@ -218,7 +222,6 @@
     <div class="round-header">
       <div class="round-badge">Ronde 2</div>
       <div class="round-title">Unmasked</div>
-      <div class="round-score" id="r2-score">0 pt</div>
     </div>
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="r2-progress" style="width:17%"></div></div>
@@ -230,8 +233,9 @@
       <div class="zoom-bar-wrap"><div class="zoom-bar" id="r2-zoombar" style="width:0%"></div></div>
       <div class="pts-flash" id="r2-pts-flash"></div>
       <div class="player-grid" id="r2-players"></div>
+      <div class="label-sm" id="r2-wait-reveal-msg" style="display:none;">Wachten op de host...</div>
       <div class="r2-feedback" id="r2-feedback"></div>
-      <button class="btn" id="r2-next-btn" style="display:none;margin-top:4px;" onclick="nextR2Q()">Volgende foto →</button>
+      <button class="btn" id="r2-next-btn" style="display:none;margin-top:4px;" onclick="hostNextPhoto()">Volgende foto →</button>
     </div>
   </div>
 
@@ -530,10 +534,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=8"></script>
-<script src="backend.js?v=8"></script>
-<script src="spotify-config.js?v=8"></script>
-<script src="spotify.js?v=8"></script>
-<script src="script.js?v=8"></script>
+<script src="firebase-config.js?v=9"></script>
+<script src="backend.js?v=9"></script>
+<script src="spotify-config.js?v=9"></script>
+<script src="spotify.js?v=9"></script>
+<script src="script.js?v=9"></script>
 </body>
 </html>

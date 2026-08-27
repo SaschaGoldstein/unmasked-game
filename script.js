@@ -57,29 +57,61 @@ const WHOAMI_BANK = [
   { clues: ['Onthoudt verjaardagen van bijna iedereen.', 'Heeft een la vol elastiekjes en losse batterijen.', 'Kan niet tegen ongelijke stapels.'], player: 'Nina' },
 ];
 
-// De eerste 5 vragen voeden Ronde 1 (Quick Fire) en Ronde 4 (Wie Ben Ik).
-// De laatste vraag is een bekentenis en voedt alleen Ronde 3 (Verhoor).
-const PREFERENCE_QS = [
+// Grote vragenbank waaruit Ronde 1 (Quick Fire) en Ronde 4 (Wie Ben Ik)
+// putten. Elke speler krijgt tijdens het dossier maar een willekeurige
+// subset van deze bank te zien (zie resetDossierState()), zodat niet
+// iedereen dezelfde vragen beantwoordt — Ronde 1 pakt daarna tot 10 vragen
+// waar genoeg spelers echt op geantwoord hebben (zie pickSessionQuestions()).
+const PARTY_QS = [
+  // Gewoontes & Dagelijks leven
   'Ik word chagrijnig van:',
-  'De mooiste plek op de wereld waar ik ben geweest:',
-  'Ik geef het liefst geld uit aan:',
-  'Dit heb ik het laatste gegoogled:',
+  'Mijn geheime slechte gewoonte is:',
   'De beste manier om het weekend te beginnen:',
+  'Dit doe ik als eerste als ik thuiskom:',
+  'Hier kan ik absoluut niet mee overweg:',
+  'Mijn vaste slaaphouding is:',
+  'Zo ziet mijn typische zondagochtend eruit:',
+  // Geld & Bezittingen
+  'Ik geef het liefst geld uit aan:',
+  'Mijn meest onnodige aankoop ooit:',
+  'Dit heb ik gekocht en nooit gebruikt:',
+  'Hier heb ik al geld aan besteed zonder het af te maken:',
+  // Digitaal & Social Media
+  'Dit heb ik het laatste gegoogled:',
+  'Dit staat als eerste op mijn startscherm:',
+  'Zo lang kan ik zonder mijn telefoon:',
+  'Mijn meest gebruikte emoji is:',
+  'Dit zijn de mensen die ik op Instagram het meest stalk:',
+  // Persoonlijkheid & Geheimen
+  'Het rare feit over mezelf dat ik normaal verberg:',
+  'Ik heb ooit gelogen over:',
+  'Mijn grootste ongerechtvaardigde schuldgevoel:',
+  'Dit vind ik stiekem heel erg fijn maar durf ik niet toe te geven:',
+  'Iets waar ik stiekem trots op ben maar niemand vertel:',
+  'Dit is mijn meest irrationele angst:',
+  // Relaties & Sociale situaties
+  'Zo reageer ik als iemand mij beledigt:',
+  'Dit soort mensen vermijd ik op feestjes:',
+  'Mijn strategie als ik iemand niet meer wil spreken:',
+  'De meest ongemakkelijke situatie die ik ooit heb meegemaakt:',
+  // Dromen & Ambities
+  'Als ik één dag lang iemand anders kon zijn, dan:',
+  'Dit zou ik doen als ik morgen oneindig veel geld had:',
+  'Het beroep dat ik had gewild als kind:',
+  'Mijn meest onrealistische droom:',
 ];
+// Hoeveel vragen uit de bank één speler tijdens het dossier te zien krijgt.
+const PLAYER_PARTY_QUESTION_COUNT = 12;
+// Hoeveel vragen Ronde 1 (Quick Fire) uiteindelijk gebruikt.
+const ROUND1_QUESTION_COUNT = 10;
+
 const CONFESSION_Q = 'Beken hier iets kleins (een leugentje, iets stiekems, een onschuldig grensgeval):';
 const SONG_Q = 'Mijn lievelingsnummer is (artiest - titel):';
 const DRINK_Q = 'Mijn lievelingsdrankje is:';
-const DOSSIER_QS = [...PREFERENCE_QS, CONFESSION_Q, SONG_Q, DRINK_Q];
 
-// Sjablonen om Ronde 4-aanwijzingen te bouwen uit iemands eigen dossierantwoorden.
-const R4_CLUE_TEMPLATES = {
-  'Ik word chagrijnig van:': (a) => `Wordt chagrijnig van: ${a}`,
-  'De mooiste plek op de wereld waar ik ben geweest:': (a) => `De mooiste plek die deze persoon ooit bezocht: ${a}`,
-  'Ik geef het liefst geld uit aan:': (a) => `Geeft het liefst geld uit aan: ${a}`,
-  'Dit heb ik het laatste gegoogled:': (a) => `Zocht laatst op: "${a}"`,
-  'De beste manier om het weekend te beginnen:': (a) => `Begint het weekend het liefst met: ${a}`,
-};
-
+// De vragenlijst van de huidige speler tijdens het invullen van het
+// dossier — opnieuw willekeurig samengesteld bij elke resetDossierState().
+let sessionDossierQs = [];
 let dossierQ = 0;
 let pendingPhotoDataUrl = null;
 let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Questions = [], r4Timeouts = [], r4UsePlayers = PLAYERS;
@@ -104,20 +136,24 @@ function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + m
 function pickSessionQuestions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const realPlayersFormatted = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
-  const realPools = PREFERENCE_QS.map(q => {
+  const realPools = PARTY_QS.map(q => {
     const real = lobbyPlayers
       .filter(p => p.dossierAnswers && p.dossierAnswers[q] && p.dossierAnswers[q].trim())
       .map(p => ({ text: p.dossierAnswers[q], player: p.name }));
     return { label: q, answers: real };
   }).filter(p => p.answers.length >= 2);
   // Once there's a real group, never mix in demo names — only ask about
-  // questions enough real players actually answered, however many that is.
+  // questions enough real players actually answered, however many that is
+  // (up to ROUND1_QUESTION_COUNT — every player only saw a random subset
+  // of PARTY_QS, so not every question will have enough real answers).
   const useReal = lobbyPlayers.length >= 2 && realPools.length > 0;
-  const pools = useReal ? realPools : PREFERENCE_QS.map(q => ({ label: q, answers: DEMO_ANSWERS[q] }));
+  const pools = useReal
+    ? realPools
+    : PARTY_QS.filter(q => DEMO_ANSWERS[q]).map(q => ({ label: q, answers: DEMO_ANSWERS[q] }));
   const usePlayers = useReal ? realPlayersFormatted : PLAYERS;
   // Resolve one specific answer per question now, once, so every player's
   // screen shows the exact same quote — not a per-client random pick.
-  const questions = pools.map(p => {
+  const questions = shuffle(pools).slice(0, ROUND1_QUESTION_COUNT).map(p => {
     const chosen = p.answers[Math.floor(Math.random() * p.answers.length)];
     return { label: p.label, answerText: chosen.text, correctPlayer: chosen.player };
   });
@@ -374,21 +410,24 @@ async function confirmMaskAndContinue() {
 function resetDossierState() {
   dossierQ = 0;
   Session.dossierAnswers = {};
-  document.getElementById('q-counter').textContent = `Vraag 1 van ${DOSSIER_QS.length}`;
-  document.getElementById('q-text').textContent = DOSSIER_QS[0];
-  document.getElementById('dossier-progress').style.width = Math.round((1 / DOSSIER_QS.length) * 100) + '%';
+  // Elke speler krijgt een eigen willekeurige subset van de vragenbank,
+  // plus altijd de bekentenis/liedje/drankje-vraag aan het eind.
+  sessionDossierQs = [...shuffle(PARTY_QS).slice(0, PLAYER_PARTY_QUESTION_COUNT), CONFESSION_Q, SONG_Q, DRINK_Q];
+  document.getElementById('q-counter').textContent = `Vraag 1 van ${sessionDossierQs.length}`;
+  document.getElementById('q-text').textContent = sessionDossierQs[0];
+  document.getElementById('dossier-progress').style.width = Math.round((1 / sessionDossierQs.length) * 100) + '%';
   document.getElementById('q-answer').value = '';
   document.getElementById('dossier-next-btn').textContent = 'Volgende →';
 }
 
 function nextQ() {
   const answerEl = document.getElementById('q-answer');
-  const currentQuestion = DOSSIER_QS[dossierQ];
+  const currentQuestion = sessionDossierQs[dossierQ];
   const val = answerEl.value.trim();
   if (val) Session.dossierAnswers[currentQuestion] = val;
 
   dossierQ++;
-  const total = DOSSIER_QS.length;
+  const total = sessionDossierQs.length;
 
   if (dossierQ >= total) {
     go('s-dossier-photo');
@@ -396,7 +435,7 @@ function nextQ() {
   }
 
   document.getElementById('q-counter').textContent = `Vraag ${dossierQ + 1} van ${total}`;
-  document.getElementById('q-text').textContent = DOSSIER_QS[dossierQ];
+  document.getElementById('q-text').textContent = sessionDossierQs[dossierQ];
   document.getElementById('dossier-progress').style.width = Math.round(((dossierQ + 1) / total) * 100) + '%';
   answerEl.value = '';
   if (dossierQ === total - 1) {
@@ -1085,12 +1124,16 @@ async function pickSoundtrack() {
 
 // ── Ronde 4 (fallback): Wie Ben Ik ────────
 
+// Elke vraag uit de bank werkt als aanwijzing — de vraagtekst zelf leest
+// al als een korte, anonieme quote (bv. "Ik word chagrijnig van: ...").
+const R4_ELIGIBLE_QS = new Set(PARTY_QS);
+
 function pickRound4Riddles() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const real = lobbyPlayers
     .map(p => {
-      const entries = shuffle(Object.entries(p.dossierAnswers || {}).filter(([q, a]) => R4_CLUE_TEMPLATES[q] && a && a.trim()));
-      const clues = entries.slice(0, 3).map(([q, a]) => R4_CLUE_TEMPLATES[q](a.trim()));
+      const entries = shuffle(Object.entries(p.dossierAnswers || {}).filter(([q, a]) => R4_ELIGIBLE_QS.has(q) && a && a.trim()));
+      const clues = entries.slice(0, 3).map(([q, a]) => `${q} ${a.trim()}`);
       return { clues, player: p.name };
     })
     .filter(r => r.clues.length === 3);

@@ -136,7 +136,7 @@ function pickSessionQuestions() {
 // tussenstappen er onderweg zijn overgeslagen.
 
 const SCREEN_SEQUENCE = [
-  's-home', 's-create', 's-lobby', 's-join', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-dossier', 's-waiting',
+  's-home', 's-create', 's-lobby', 's-join', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting',
   's-round1-intro', 's-round1-q', 's-round1-score',
   's-round2-intro', 's-round2-q', 's-round2-score',
   's-hotornot',
@@ -224,7 +224,7 @@ async function joinLobbyClick() {
     resetDossierState();
     resetPhotoState();
     resetBiechtRecording();
-    go('s-dossier-photo');
+    go('s-dossier');
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = 'block';
   }
@@ -268,7 +268,7 @@ async function hostStartGame() {
   go('s-round1-intro');
 }
 
-function goDossier() { resetDossierState(); resetPhotoState(); resetBiechtRecording(); go('s-dossier-photo'); }
+function goDossier() { resetDossierState(); resetPhotoState(); resetBiechtRecording(); go('s-dossier'); }
 
 // ── Dossierfoto (Ronde 2) ──────────────────
 
@@ -391,7 +391,7 @@ function nextQ() {
   const total = DOSSIER_QS.length;
 
   if (dossierQ >= total) {
-    submitDossierAndWait();
+    go('s-dossier-photo');
     return;
   }
 
@@ -400,10 +400,13 @@ function nextQ() {
   document.getElementById('dossier-progress').style.width = Math.round(((dossierQ + 1) / total) * 100) + '%';
   answerEl.value = '';
   if (dossierQ === total - 1) {
-    document.getElementById('dossier-next-btn').textContent = 'Dossier indienen →';
+    document.getElementById('dossier-next-btn').textContent = 'Verder →';
   }
 }
 
+// Enige echte inzending van het dossier — gebeurt nu pas op het einde
+// van de hele setup (na tekst, foto en biecht), niet meer meteen na de
+// tekstvragen.
 async function submitDossierAndWait() {
   if (Session.code && Session.playerId) {
     try { await GameOps.submitDossier(Session.code, Session.playerId, Session.dossierAnswers); } catch (e) { /* local demo mode without a lobby */ }
@@ -1352,6 +1355,18 @@ let recordingSeconds = 0;
 let rawRecordingBlob = null;
 let distortedVoiceDataUrl = null;
 let lastRenderedBiechtKey = '';
+let selectedVoiceStyle = 'low';
+// Recording itself has no fixed cap — stop whenever you're done. This
+// ceiling only exists so a single voice clip can never grow past what
+// fits in its own Firestore document (~1MB); at 11025Hz mono that's
+// roughly 35s of audio, so 30s leaves a safety margin.
+const RECORDING_SAFETY_CEILING_SECONDS = 30;
+
+function selectVoiceStyle(style) {
+  selectedVoiceStyle = style;
+  document.getElementById('voice-style-low-btn').classList.toggle('selected', style === 'low');
+  document.getElementById('voice-style-high-btn').classList.toggle('selected', style === 'high');
+}
 
 async function startBiechtRecording() {
   const statusEl = document.getElementById('biecht-record-status');
@@ -1366,6 +1381,7 @@ async function startBiechtRecording() {
     mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
+      document.getElementById('biecht-stop-btn').style.display = 'none';
       if (!recordedChunks.length) {
         statusEl.style.color = 'var(--red)';
         statusEl.textContent = 'Geen geluid opgevangen. Probeer opnieuw, of sla over.';
@@ -1378,11 +1394,12 @@ async function startBiechtRecording() {
     mediaRecorder.start();
     recordingSeconds = 0;
     document.getElementById('biecht-record-btn').style.display = 'none';
-    statusEl.textContent = 'Opname loopt... (max 12s)';
+    document.getElementById('biecht-stop-btn').style.display = 'block';
+    statusEl.textContent = 'Opname loopt... druk op stop als je klaar bent.';
     recordingTimer = setInterval(() => {
       recordingSeconds++;
       document.getElementById('biecht-record-timer').textContent = recordingSeconds + 's';
-      if (recordingSeconds >= 12) stopBiechtRecording();
+      if (recordingSeconds >= RECORDING_SAFETY_CEILING_SECONDS) stopBiechtRecording();
     }, 1000);
   } catch (e) {
     statusEl.style.color = 'var(--red)';
@@ -1394,7 +1411,7 @@ async function skipBiechtRecording() {
   if (Session.code && Session.playerId) {
     try { await GameOps.markVoiceSkipped(Session.code, Session.playerId); } catch (e) { /* local demo mode */ }
   }
-  go('s-dossier');
+  await submitDossierAndWait();
 }
 
 function stopBiechtRecording() {
@@ -1407,7 +1424,7 @@ async function processBiechtRecording() {
   statusEl.style.color = 'var(--text-muted)';
   statusEl.textContent = 'Stem wordt vervormd...';
   try {
-    distortedVoiceDataUrl = await distortVoice(rawRecordingBlob);
+    distortedVoiceDataUrl = await distortVoice(rawRecordingBlob, selectedVoiceStyle);
   } catch (e) {
     statusEl.style.color = 'var(--red)';
     statusEl.textContent = 'Kon de opname niet verwerken. Probeer opnieuw, of sla over.';
@@ -1435,23 +1452,26 @@ function resetBiechtRecording() {
   document.getElementById('biecht-confirm-btn').style.display = 'none';
   document.getElementById('biecht-record-status').textContent = '';
   document.getElementById('biecht-record-timer').textContent = '0s';
+  const stopBtn = document.getElementById('biecht-stop-btn');
+  if (stopBtn) stopBtn.style.display = 'none';
   const btn = document.getElementById('biecht-record-btn');
   btn.style.display = 'block';
   btn.textContent = '🎙 Start opname';
   btn.onclick = startBiechtRecording;
+  selectVoiceStyle('low');
 }
 
 async function confirmBiechtRecording() {
-  if (!distortedVoiceDataUrl || !Session.code) { go('s-dossier'); return; }
+  if (!distortedVoiceDataUrl || !Session.code) { await submitDossierAndWait(); return; }
   await Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl);
   await GameOps.markVoiceReady(Session.code, Session.playerId);
-  go('s-dossier');
+  await submitDossierAndWait();
 }
 
 // Stemvervorming: neem het opgenomen fragment, verander toonhoogte + snelheid
 // via playbackRate en filter het licht, render het offline en zet het om
 // naar een WAV data-URL zodat het klein genoeg blijft om op te slaan.
-async function distortVoice(blob) {
+async function distortVoice(blob, style) {
   const arrayBuf = await blob.arrayBuffer();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   const tempCtx = new AudioCtx();
@@ -1462,8 +1482,9 @@ async function distortVoice(blob) {
   // friends. Push the shift further and layer a light ring-modulation
   // (amplitude modulated by a low-frequency oscillator) on top for a
   // genuinely artificial "voice changer" timbre, mixed with some of the
-  // dry signal so the words stay intelligible.
-  const low = Math.random() < 0.5;
+  // dry signal so the words stay intelligible. Style is an explicit
+  // player choice now, not a coin flip.
+  const low = style !== 'high';
   const pitchFactor = low ? 0.6 + Math.random() * 0.08 : 1.5 + Math.random() * 0.25;
   const outSampleRate = 11025;
   const outLength = Math.ceil((audioBuffer.duration / pitchFactor) * outSampleRate);

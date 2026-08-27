@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=12" />
+  <link rel="stylesheet" href="style.css?v=13" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -79,7 +79,7 @@
   <!-- DOSSIER FOTO -->
   <div class="screen" id="s-dossier-photo">
     <div class="screen-inner centered">
-      <button class="back-btn" onclick="go('s-lobby')" style="align-self:flex-start;">← Terug</button>
+      <button class="back-btn" onclick="go('s-dossier')" style="align-self:flex-start;">← Terug</button>
       <div class="section-title">Jouw foto</div>
       <div class="section-sub">Voor Ronde 2 (Unmasked) — kies een duidelijke foto van je gezicht. Ze wordt lokaal verkleind voordat ze verstuurd wordt.</div>
       <div class="photo-picker" id="photo-picker" onclick="document.getElementById('photo-input').click()">
@@ -116,12 +116,18 @@
   <!-- DOSSIER BIECHT (vooraf opgenomen voor Ronde 5) -->
   <div class="screen" id="s-dossier-voice">
     <div class="screen-inner centered">
-      <button class="back-btn" onclick="go('s-dossier-photo')" style="align-self:flex-start;">← Terug</button>
+      <button class="back-btn" onclick="go('s-photo-mask')" style="align-self:flex-start;">← Terug</button>
       <div class="section-title">Jouw biecht</div>
-      <div class="section-sub">Voor Ronde 5 — spreek nu al iets kleins in (een leugentje, een geheim, iets grappigs). Max 12 seconden. Je stem wordt automatisch vervormd en pas later, tijdens het spel, afgespeeld.</div>
-      <span class="round-intro-icon" style="margin-top:16px;">🎙️</span>
+      <div class="section-sub">Voor Ronde 5 — spreek nu al iets kleins in (een leugentje, een geheim, iets grappigs). Je stem wordt automatisch vervormd en pas later, tijdens het spel, afgespeeld.</div>
+      <label style="margin-top:4px;">Kies je stemvervormer</label>
+      <div class="hon-buttons" style="margin-top:8px;">
+        <button class="btn secondary voice-style-btn selected" id="voice-style-low-btn" onclick="selectVoiceStyle('low')">🦖 Diepe stem</button>
+        <button class="btn secondary voice-style-btn" id="voice-style-high-btn" onclick="selectVoiceStyle('high')">🐿️ Hoge stem</button>
+      </div>
+      <span class="round-intro-icon" style="margin-top:12px;">🎙️</span>
       <div class="label-sm" id="biecht-record-timer">0s</div>
       <button class="btn amber" id="biecht-record-btn" onclick="startBiechtRecording()">🎙 Start opname</button>
+      <button class="btn secondary" id="biecht-stop-btn" style="display:none;" onclick="stopBiechtRecording()">⏹ Stop opname</button>
       <div class="label-sm" id="biecht-record-status" style="min-height:18px;font-weight:600;"></div>
       <div id="biecht-preview-wrap" style="display:none;width:100%;margin-top:8px;">
         <audio id="biecht-preview" controls style="width:100%;"></audio>
@@ -134,7 +140,7 @@
   <!-- DOSSIER -->
   <div class="screen" id="s-dossier">
     <div class="screen-inner">
-      <button class="back-btn" onclick="go('s-dossier-photo')">← Terug</button>
+      <button class="back-btn" onclick="go('s-lobby')">← Terug</button>
       <div class="section-title">Jouw dossier</div>
       <div class="section-sub">Beantwoord eerlijk — hoe beter je invult, hoe leuker de avond.</div>
       <div class="progress-bar"><div class="progress-fill" id="dossier-progress" style="width:20%"></div></div>
@@ -521,10 +527,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=12"></script>
-<script src="backend.js?v=12"></script>
-<script src="spotify-config.js?v=12"></script>
-<script src="spotify.js?v=12"></script>
-<script src="script.js?v=12"></script>
+<script src="firebase-config.js?v=13"></script>
+<script src="backend.js?v=13"></script>
+<script src="spotify-config.js?v=13"></script>
+<script src="spotify.js?v=13"></script>
+<script src="script.js?v=13"></script>
 </body>
 </html>

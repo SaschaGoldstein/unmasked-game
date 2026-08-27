@@ -1458,7 +1458,13 @@ async function distortVoice(blob) {
   const audioBuffer = await tempCtx.decodeAudioData(arrayBuf);
   await tempCtx.close();
 
-  const pitchFactor = Math.random() < 0.5 ? 0.72 : 1.45;
+  // A plain pitch shift alone can still leave a voice placeable by close
+  // friends. Push the shift further and layer a light ring-modulation
+  // (amplitude modulated by a low-frequency oscillator) on top for a
+  // genuinely artificial "voice changer" timbre, mixed with some of the
+  // dry signal so the words stay intelligible.
+  const low = Math.random() < 0.5;
+  const pitchFactor = low ? 0.6 + Math.random() * 0.08 : 1.5 + Math.random() * 0.25;
   const outSampleRate = 11025;
   const outLength = Math.ceil((audioBuffer.duration / pitchFactor) * outSampleRate);
   const offlineCtx = new OfflineAudioContext(1, outLength, outSampleRate);
@@ -1466,11 +1472,33 @@ async function distortVoice(blob) {
   const src = offlineCtx.createBufferSource();
   src.buffer = audioBuffer;
   src.playbackRate.value = pitchFactor;
+
   const filter = offlineCtx.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = 4000;
+  filter.type = low ? 'lowpass' : 'highpass';
+  filter.frequency.value = low ? 2800 : 350;
+
+  const modulator = offlineCtx.createOscillator();
+  modulator.frequency.value = low ? 32 : 60;
+  const modDepth = offlineCtx.createGain();
+  modDepth.gain.value = 0.5;
+  const ringGain = offlineCtx.createGain();
+  ringGain.gain.value = 0;
+  modulator.connect(modDepth);
+  modDepth.connect(ringGain.gain);
+
+  const dryGain = offlineCtx.createGain();
+  dryGain.gain.value = 0.55;
+  const wetGain = offlineCtx.createGain();
+  wetGain.gain.value = 0.65;
+
   src.connect(filter);
-  filter.connect(offlineCtx.destination);
+  filter.connect(dryGain);
+  filter.connect(ringGain);
+  ringGain.connect(wetGain);
+  dryGain.connect(offlineCtx.destination);
+  wetGain.connect(offlineCtx.destination);
+
+  modulator.start();
   src.start();
 
   const rendered = await offlineCtx.startRendering();

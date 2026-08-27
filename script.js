@@ -136,13 +136,13 @@ function pickSessionQuestions() {
 // tussenstappen er onderweg zijn overgeslagen.
 
 const SCREEN_SEQUENCE = [
-  's-home', 's-create', 's-lobby', 's-join', 's-dossier-photo', 's-photo-mask', 's-dossier', 's-waiting',
+  's-home', 's-create', 's-lobby', 's-join', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-dossier', 's-waiting',
   's-round1-intro', 's-round1-q', 's-round1-score',
   's-round2-intro', 's-round2-q', 's-round2-score',
   's-hotornot',
   's-round3-intro', 's-round3-q', 's-round3-score',
   's-round4-intro', 's-round4-q', 's-round4-soundtrack-q', 's-round4-score',
-  's-round5-intro', 's-round5-record', 's-round5-waiting', 's-round5-play', 's-round5-vote', 's-round5-final',
+  's-round5-intro', 's-round5-play', 's-round5-vote', 's-round5-final',
 ];
 
 const PHASE_SYNC = {
@@ -188,10 +188,10 @@ function subscribeLobby() {
     renderPhotoRound(lobby);
     renderHotOrNot(lobby);
     renderVerhoor(lobby);
-    renderBiechtWaiting(lobby);
     renderBiecht(lobby);
     renderRound4Intro(lobby);
     renderSoundtrack(lobby);
+    renderRound5Intro(lobby);
   });
 }
 
@@ -223,6 +223,7 @@ async function joinLobbyClick() {
     subscribeLobby();
     resetDossierState();
     resetPhotoState();
+    resetBiechtRecording();
     go('s-dossier-photo');
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = 'block';
@@ -267,7 +268,7 @@ async function hostStartGame() {
   go('s-round1-intro');
 }
 
-function goDossier() { resetDossierState(); resetPhotoState(); go('s-dossier-photo'); }
+function goDossier() { resetDossierState(); resetPhotoState(); resetBiechtRecording(); go('s-dossier-photo'); }
 
 // ── Dossierfoto (Ronde 2) ──────────────────
 
@@ -318,7 +319,7 @@ function confirmPhotoAndContinue() {
   openMaskEditor();
 }
 
-function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier'); }
+function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier-voice'); }
 
 // ── Masker plaatsen (Ronde 2) ──────────────
 
@@ -367,7 +368,7 @@ async function confirmMaskAndContinue() {
       });
     } catch (e) { /* local demo mode */ }
   }
-  go('s-dossier');
+  go('s-dossier-voice');
 }
 
 function resetDossierState() {
@@ -1216,7 +1217,6 @@ function buildDrinkOptions(list, index) {
 async function hostPlaySoundtrack() {
   const st = latestLobby.soundtrack;
   soundtrackPlayedForIndex = st.index;
-  document.getElementById('st-host-play-btn').style.display = 'none';
   const track = st.list[st.index];
   await playSpotifyTrack(track.trackId, 'st-embed');
 }
@@ -1229,13 +1229,19 @@ function renderSoundtrack(lobby) {
   if (st.index !== lastRenderedSoundtrackIndex) {
     lastRenderedSoundtrackIndex = st.index;
     document.getElementById('st-embed').innerHTML = '';
+    // Auto-play for the host as soon as a new song comes up — no manual
+    // tap needed. The button stays available as a fallback in case the
+    // browser blocks autoplay, or someone wants to replay the fragment.
+    if (Session.isHost && st.stage === 'guessing') hostPlaySoundtrack();
   }
   document.getElementById('st-qnum').textContent = `Nummer ${st.index + 1} van ${st.list.length}`;
   document.getElementById('st-progress').style.width = Math.round(((st.index + 1) / st.list.length) * 100) + '%';
   document.getElementById('st-host-player').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('st-guest-wait').style.display = Session.isHost ? 'none' : 'block';
   const alreadyPlayed = soundtrackPlayedForIndex === st.index;
-  document.getElementById('st-host-play-btn').style.display = (Session.isHost && st.stage === 'guessing' && !alreadyPlayed) ? 'block' : 'none';
+  const playBtn = document.getElementById('st-host-play-btn');
+  playBtn.style.display = (Session.isHost && st.stage === 'guessing') ? 'block' : 'none';
+  playBtn.textContent = alreadyPlayed ? '▶ Opnieuw afspelen' : '▶ Speel fragment af';
 
   const myOwnerGuess = (st.ownerAnswers || {})[Session.playerId];
   const ownerWrap = document.getElementById('st-owner-players');
@@ -1388,12 +1394,7 @@ async function skipBiechtRecording() {
   if (Session.code && Session.playerId) {
     try { await GameOps.markVoiceSkipped(Session.code, Session.playerId); } catch (e) { /* local demo mode */ }
   }
-  go('s-round5-waiting');
-  if (latestLobby) {
-    const p = latestLobby.players.find(pl => pl.id === Session.playerId);
-    if (p) p.voiceSkipped = true;
-    renderBiechtWaiting(latestLobby);
-  }
+  go('s-dossier');
 }
 
 function stopBiechtRecording() {
@@ -1426,26 +1427,25 @@ async function processBiechtRecording() {
 }
 
 function resetBiechtRecording() {
+  clearInterval(recordingTimer);
   distortedVoiceDataUrl = null;
+  rawRecordingBlob = null;
+  recordedChunks = [];
   document.getElementById('biecht-preview-wrap').style.display = 'none';
   document.getElementById('biecht-confirm-btn').style.display = 'none';
   document.getElementById('biecht-record-status').textContent = '';
   document.getElementById('biecht-record-timer').textContent = '0s';
   const btn = document.getElementById('biecht-record-btn');
+  btn.style.display = 'block';
   btn.textContent = '🎙 Start opname';
   btn.onclick = startBiechtRecording;
 }
 
 async function confirmBiechtRecording() {
-  if (!distortedVoiceDataUrl || !Session.code) return;
+  if (!distortedVoiceDataUrl || !Session.code) { go('s-dossier'); return; }
   await Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl);
   await GameOps.markVoiceReady(Session.code, Session.playerId);
-  go('s-round5-waiting');
-  if (latestLobby) {
-    const p = latestLobby.players.find(pl => pl.id === Session.playerId);
-    if (p) p.voiceReady = true;
-    renderBiechtWaiting(latestLobby);
-  }
+  go('s-dossier');
 }
 
 // Stemvervorming: neem het opgenomen fragment, verander toonhoogte + snelheid
@@ -1505,18 +1505,16 @@ function audioBufferToWavDataUrl(buffer) {
   });
 }
 
-function renderBiechtWaiting(lobby) {
-  const notDoneEl = document.getElementById('biecht-notdone');
-  if (!notDoneEl || !document.getElementById('s-round5-waiting').classList.contains('active')) return;
-  const notDone = lobby.players.filter(p => !p.voiceReady && !p.voiceSkipped);
-  const done = lobby.players.filter(p => p.voiceReady || p.voiceSkipped);
-  document.getElementById('biecht-notdone-card').style.display = notDone.length ? 'block' : 'none';
-  notDoneEl.innerHTML = notDone.map(p => `<span class="pill">${p.name}</span>`).join('');
-  document.getElementById('biecht-donecount').textContent = `Klaar (${done.length}/${lobby.players.length})`;
-  document.getElementById('biecht-donelist').textContent = done.map(p => p.name).join(', ') || '—';
-  const enough = done.length >= 2;
-  document.getElementById('biecht-start-btn').style.display = Session.isHost && enough ? 'block' : 'none';
-  document.getElementById('biecht-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+function goRound5Intro() {
+  go('s-round5-intro');
+  renderRound5Intro(latestLobby || {});
+}
+
+function renderRound5Intro(lobby) {
+  const introScreen = document.getElementById('s-round5-intro');
+  if (!introScreen) return;
+  document.getElementById('r5intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r5intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
 }
 
 async function hostStartBiechtPlayback() {

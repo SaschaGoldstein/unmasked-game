@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=10" />
+  <link rel="stylesheet" href="style.css?v=11" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -110,6 +110,24 @@
       <label style="margin-top:20px;">Maskergrootte</label>
       <input type="range" min="20" max="60" value="34" id="mask-size-slider" oninput="updateMaskSize(this.value)" />
       <button class="btn" style="margin-top:20px;" onclick="confirmMaskAndContinue()">Volgende →</button>
+    </div>
+  </div>
+
+  <!-- DOSSIER BIECHT (vooraf opgenomen voor Ronde 5) -->
+  <div class="screen" id="s-dossier-voice">
+    <div class="screen-inner centered">
+      <button class="back-btn" onclick="go('s-dossier-photo')" style="align-self:flex-start;">← Terug</button>
+      <div class="section-title">Jouw biecht</div>
+      <div class="section-sub">Voor Ronde 5 — spreek nu al iets kleins in (een leugentje, een geheim, iets grappigs). Max 12 seconden. Je stem wordt automatisch vervormd en pas later, tijdens het spel, afgespeeld.</div>
+      <span class="round-intro-icon" style="margin-top:16px;">🎙️</span>
+      <div class="label-sm" id="biecht-record-timer">0s</div>
+      <button class="btn amber" id="biecht-record-btn" onclick="startBiechtRecording()">🎙 Start opname</button>
+      <div class="label-sm" id="biecht-record-status" style="min-height:18px;font-weight:600;"></div>
+      <div id="biecht-preview-wrap" style="display:none;width:100%;margin-top:8px;">
+        <audio id="biecht-preview" controls style="width:100%;"></audio>
+      </div>
+      <button class="btn" id="biecht-confirm-btn" style="display:none;margin-top:16px;" onclick="confirmBiechtRecording()">Volgende →</button>
+      <button class="btn ghost" onclick="skipBiechtRecording()">Lukt niet? Sla over</button>
     </div>
   </div>
 
@@ -435,7 +453,7 @@
       <div class="waiting-sub" style="margin-bottom:16px;">Laatste tussenstand — op naar de eindstand!</div>
       <div class="card" style="width:100%;"><div id="scoreboard-r4"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="go('s-round5-intro')">Naar Ronde 5: Biecht-Finale →</button>
+        <button class="btn amber" onclick="goRound5Intro()">Naar Ronde 5: Biecht-Finale →</button>
       </div>
     </div>
   </div>
@@ -446,45 +464,14 @@
       <span class="round-intro-icon">🎙️</span>
       <div class="round-intro-title">Ronde 5</div>
       <div class="round-intro-accent">De Biecht-Finale</div>
-      <div class="round-intro-sub">Spreek een kort verhaal in — je stem wordt automatisch vervormd. De groep luistert samen en stemt op het beste verhaal.</div>
+      <div class="round-intro-sub">Ieders vervormde biecht — al opgenomen bij het invullen van je dossier — wordt nu afgespeeld. De groep luistert samen en stemt op het beste verhaal.</div>
       <div class="rules">
-        <div class="rule-row"><div class="rule-icon">🎙️</div><div class="rule-text">Neem een verhaal op van <strong>max. 12 seconden</strong></div></div>
-        <div class="rule-row"><div class="rule-icon">🌀</div><div class="rule-text">Je stem wordt automatisch <strong>vervormd</strong> — anoniem</div></div>
-        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">De groep stemt → <strong>+5 bonuspunten</strong> voor het beste verhaal</div></div>
+        <div class="rule-row"><div class="rule-icon">🌀</div><div class="rule-text">Elke stem is al <strong>vervormd</strong> — anoniem</div></div>
+        <div class="rule-row"><div class="rule-icon">🎧</div><div class="rule-text">De groep luistert <strong>samen</strong>, verhaal per verhaal</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Stem op het beste verhaal → <strong>+5 bonuspunten</strong></div></div>
       </div>
-      <button class="btn amber" style="margin-top:auto;" onclick="go('s-round5-record')">Neem je biecht op →</button>
-    </div>
-  </div>
-
-  <!-- RONDE 5 OPNAME -->
-  <div class="screen" id="s-round5-record">
-    <div class="screen-inner centered">
-      <div class="section-title">Jouw biecht</div>
-      <div class="section-sub">Spreek iets kleins in — een leugentje, een geheim, iets grappigs. Max 12 seconden.</div>
-      <span class="round-intro-icon" style="margin-top:16px;">🎙️</span>
-      <div class="label-sm" id="biecht-record-timer">0s</div>
-      <button class="btn amber" id="biecht-record-btn" onclick="startBiechtRecording()">🎙 Start opname</button>
-      <div class="label-sm" id="biecht-record-status" style="min-height:18px;font-weight:600;"></div>
-      <div id="biecht-preview-wrap" style="display:none;width:100%;margin-top:8px;">
-        <audio id="biecht-preview" controls style="width:100%;"></audio>
-      </div>
-      <button class="btn" id="biecht-confirm-btn" style="display:none;margin-top:16px;" onclick="confirmBiechtRecording()">Verstuur biecht →</button>
-      <button class="btn ghost" onclick="skipBiechtRecording()">Lukt niet? Sla over (doe gewoon mee met stemmen)</button>
-    </div>
-  </div>
-
-  <!-- RONDE 5 WACHTKAMER -->
-  <div class="screen" id="s-round5-waiting">
-    <div class="screen-inner centered">
-      <span class="waiting-big">⏳</span>
-      <div class="waiting-title">Biecht ingediend!</div>
-      <div class="waiting-sub">Wacht tot genoeg spelers klaar zijn. De host start het luisteren wanneer de groep zover is.</div>
-      <div class="card" id="biecht-notdone-card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><div id="biecht-notdone"></div></div>
-      <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="biecht-donecount">Klaar (0/0)</div><div class="card-sub" id="biecht-donelist"></div></div>
-      <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" id="biecht-start-btn" style="display:none;" onclick="hostStartBiechtPlayback()">Host: Start het luisteren →</button>
-        <div class="label-sm" id="biecht-wait-msg">Wachten op de host...</div>
-      </div>
+      <button class="btn amber" id="r5intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartBiechtPlayback()">Start het luisteren →</button>
+      <div class="label-sm" id="r5intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
 
@@ -534,10 +521,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=10"></script>
-<script src="backend.js?v=10"></script>
-<script src="spotify-config.js?v=10"></script>
-<script src="spotify.js?v=10"></script>
-<script src="script.js?v=10"></script>
+<script src="firebase-config.js?v=11"></script>
+<script src="backend.js?v=11"></script>
+<script src="spotify-config.js?v=11"></script>
+<script src="spotify.js?v=11"></script>
+<script src="script.js?v=11"></script>
 </body>
 </html>

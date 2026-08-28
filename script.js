@@ -172,7 +172,7 @@ function pickSessionQuestions() {
 // tussenstappen er onderweg zijn overgeslagen.
 
 const SCREEN_SEQUENCE = [
-  's-home', 's-create', 's-lobby', 's-join', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting',
+  's-home', 's-create', 's-lobby', 's-join', 's-dossier', 's-dossier-photo', 's-dossier-voice', 's-waiting',
   's-round1-intro', 's-round1-q', 's-round1-score',
   's-round2-intro', 's-round2-q', 's-round2-score',
   's-hotornot',
@@ -350,62 +350,17 @@ async function handlePhotoSelected(ev) {
   document.getElementById('photo-picker-icon').style.display = 'none';
 }
 
-function confirmPhotoAndContinue() {
-  if (!pendingPhotoDataUrl) { go('s-dossier'); return; }
-  openMaskEditor();
-}
-
-function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier-voice'); }
-
-// ── Masker plaatsen (Ronde 2) ──────────────
-
-let maskPos = { x: 50, y: 40, size: 34 };
-let maskDragging = false;
-
-function openMaskEditor() {
-  maskPos = { x: 50, y: 40, size: 34 };
-  document.getElementById('mask-editor-photo').src = pendingPhotoDataUrl;
-  document.getElementById('mask-size-slider').value = maskPos.size;
-  applyMaskPos();
-  initMaskDrag();
-  go('s-photo-mask');
-}
-
-function applyMaskPos() {
-  const el = document.getElementById('mask-overlay');
-  el.style.left = maskPos.x + '%';
-  el.style.top = maskPos.y + '%';
-  el.style.width = maskPos.size + '%';
-}
-
-function updateMaskSize(val) { maskPos.size = parseInt(val, 10); applyMaskPos(); }
-
-function maskPointerMove(ev) {
-  if (!maskDragging) return;
-  const rect = document.getElementById('mask-editor').getBoundingClientRect();
-  maskPos.x = Math.min(100, Math.max(0, ((ev.clientX - rect.left) / rect.width) * 100));
-  maskPos.y = Math.min(100, Math.max(0, ((ev.clientY - rect.top) / rect.height) * 100));
-  applyMaskPos();
-}
-
-function initMaskDrag() {
-  const overlay = document.getElementById('mask-overlay');
-  overlay.onpointerdown = (ev) => { maskDragging = true; overlay.setPointerCapture(ev.pointerId); };
-  overlay.onpointermove = maskPointerMove;
-  overlay.onpointerup = () => { maskDragging = false; };
-  overlay.onpointercancel = () => { maskDragging = false; };
-}
-
-async function confirmMaskAndContinue() {
+// Geen apart maskerscherm meer — de foto zelf hoort al onherkenbaar te
+// zijn (bv. als kind, verkleed, ...), dus na de upload gaan we direct door.
+async function confirmPhotoAndContinue() {
+  if (!pendingPhotoDataUrl) { go('s-dossier-voice'); return; }
   if (Session.code && Session.playerId) {
-    try {
-      await GameOps.submitPhoto(Session.code, Session.playerId, {
-        url: pendingPhotoDataUrl, maskX: maskPos.x, maskY: maskPos.y, maskScale: maskPos.size,
-      });
-    } catch (e) { /* local demo mode */ }
+    try { await GameOps.submitPhoto(Session.code, Session.playerId, { url: pendingPhotoDataUrl }); } catch (e) { /* local demo mode */ }
   }
   go('s-dossier-voice');
 }
+
+function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier-voice'); }
 
 function resetDossierState() {
   dossierQ = 0;
@@ -582,14 +537,6 @@ async function hostNextQF() {
   renderQuickFire({ ...latestLobby, quickfire: next });
 }
 
-function maskSvgHtml() {
-  return `<svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg">
-    <path d="M2 25 Q2 5 30 8 Q50 2 70 8 Q98 5 98 25 Q98 40 70 38 Q50 44 30 38 Q2 40 2 25Z" fill="#0b0a13" stroke="#ff3d6b" stroke-width="1.5"/>
-    <ellipse cx="28" cy="24" rx="11" ry="7" fill="#f4f2fb"/>
-    <ellipse cx="72" cy="24" rx="11" ry="7" fill="#f4f2fb"/>
-  </svg>`;
-}
-
 // ── Ronde 2: Unmasked (live, host-gestuurd) ──
 // Zelfde patroon als Ronde 1/3: lobby.photoRound is de bron van waarheid.
 // De zoom-animatie wordt lokaal getekend op basis van de gedeelde
@@ -613,7 +560,7 @@ function pickRound2Photos() {
   if (withPhotos.length >= 3) {
     return {
       usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
-      photos: shuffle(withPhotos).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
+      photos: shuffle(withPhotos).map(p => ({ photo: p.photo.url, player: p.name })),
     };
   }
   return { usePlayers: PLAYERS, photos: shuffle(R2_PHOTOS) };
@@ -648,8 +595,7 @@ function renderPhotoRound(lobby) {
       photoEl.style.backgroundImage = `url(${photo.photo})`;
       photoEl.style.backgroundSize = 'cover';
       photoEl.style.backgroundPosition = 'center';
-      const m = photo.mask;
-      photoEl.innerHTML = m ? `<div class="r2-mask" style="left:${m.maskX}%;top:${m.maskY}%;width:${m.maskScale}%;">${maskSvgHtml()}</div>` : '';
+      photoEl.innerHTML = '';
     } else {
       photoEl.style.backgroundImage = 'none';
       photoEl.textContent = photo.emoji;

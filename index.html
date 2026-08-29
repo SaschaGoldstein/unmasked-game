@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=16" />
+  <link rel="stylesheet" href="style.css?v=17" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -38,7 +38,7 @@
       <label>Jouw naam</label>
       <input type="text" placeholder="bijv. Sander" id="create-name" />
       <label>Aantal spelers</label>
-      <input type="number" min="4" max="12" value="6" id="create-maxplayers" />
+      <input type="number" min="2" max="12" value="6" id="create-maxplayers" />
       <div class="label-sm" id="create-error" style="color:var(--red);display:none;margin-top:8px;"></div>
       <button class="btn amber" style="margin-top:28px;" onclick="createLobbyClick()">Lobby aanmaken →</button>
     </div>
@@ -86,7 +86,7 @@
         <span id="photo-picker-icon">📷</span>
         <img id="photo-preview" style="display:none;" />
       </div>
-      <input type="file" accept="image/*" capture="user" id="photo-input" style="display:none;" onchange="handlePhotoSelected(event)" />
+      <input type="file" accept="image/*" id="photo-input" style="display:none;" onchange="handlePhotoSelected(event)" />
       <button class="btn" style="margin-top:28px;" onclick="confirmPhotoAndContinue()">Volgende →</button>
       <button class="btn ghost" onclick="skipPhotoAndContinue()">Sla over (gebruik avatar)</button>
     </div>
@@ -528,10 +528,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=16"></script>
-<script src="backend.js?v=16"></script>
-<script src="spotify-config.js?v=16"></script>
-<script src="spotify.js?v=16"></script>
-<script src="script.js?v=16"></script>
+<script src="firebase-config.js?v=17"></script>
+<script src="backend.js?v=17"></script>
+<script src="spotify-config.js?v=17"></script>
+<script src="spotify.js?v=17"></script>
+<script src="script.js?v=17"></script>
 </body>
 </html>

@@ -133,6 +133,18 @@ function go(screenId) {
 function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
+// Herhaal een cruciale Firestore-schrijfactie (bv. "volgende vraag") een
+// paar keer bij een falende write — op een wankele mobiele verbinding kan
+// die eenmalig mislukken, en zonder herhaling loopt dan de hele groep vast
+// omdat enkel de host deze schrijfactie uitvoert.
+async function withRetry(fn, attempts = 5, delayMs = 300) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try { return await fn(); } catch (e) { lastErr = e; if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs)); }
+  }
+  throw lastErr;
+}
+
 function pickSessionQuestions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const realPlayersFormatted = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
@@ -583,12 +595,12 @@ async function hostNextQF() {
   const qf = latestLobby.quickfire;
   const nextIndex = qf.index + 1;
   if (nextIndex >= qf.questions.length) {
-    await GameOps.setPhase(Session.code, 'quickfire-score');
+    await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-score'));
     showScoreR1();
     return;
   }
   const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
-  await GameOps.setQuickfire(Session.code, next);
+  await withRetry(() => GameOps.setQuickfire(Session.code, next));
   renderQuickFire({ ...latestLobby, quickfire: next });
 }
 
@@ -762,12 +774,12 @@ async function hostNextPhoto() {
   const pr = latestLobby.photoRound;
   const nextIndex = pr.index + 1;
   if (nextIndex >= pr.photos.length) {
-    await GameOps.setPhase(Session.code, 'photoround-score');
+    await withRetry(() => GameOps.setPhase(Session.code, 'photoround-score'));
     showScoreR2();
     return;
   }
   const next = { ...pr, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
-  await GameOps.setPhotoRound(Session.code, next);
+  await withRetry(() => GameOps.setPhotoRound(Session.code, next));
   renderPhotoRound({ ...latestLobby, photoRound: next });
 }
 
@@ -1060,12 +1072,12 @@ async function hostNextVerhoor() {
   const v = latestLobby.verhoor;
   const nextIndex = v.index + 1;
   if (nextIndex >= v.list.length) {
-    await GameOps.setPhase(Session.code, 'round3-score');
+    await withRetry(() => GameOps.setPhase(Session.code, 'round3-score'));
     showScoreR3();
     return;
   }
   const next = { ...v, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
-  await GameOps.setVerhoor(Session.code, next);
+  await withRetry(() => GameOps.setVerhoor(Session.code, next));
   renderVerhoor({ ...latestLobby, verhoor: next });
 }
 
@@ -1366,10 +1378,10 @@ async function hostRevealSoundtrackOwner() {
   const correctGuessers = Object.entries(st.ownerAnswers || {})
     .filter(([, a]) => a.guess === track.playerId)
     .sort((a, b) => a[1].at - b[1].at);
-  if (correctGuessers.length) await GameOps.addScore(Session.code, correctGuessers[0][0], 5);
+  if (correctGuessers.length) { try { await GameOps.addScore(Session.code, correctGuessers[0][0], 5); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
   const drinkOptions = buildDrinkOptions(st.list, st.index);
   const next = { ...st, stage: 'drink', revealed: true, drinkOptions, drinkAnswers: {} };
-  await GameOps.setSoundtrack(Session.code, next);
+  await withRetry(() => GameOps.setSoundtrack(Session.code, next));
   renderSoundtrack({ ...latestLobby, soundtrack: next });
 }
 
@@ -1387,17 +1399,17 @@ async function hostNextSoundtrack() {
   const correctDrink = (track.drink || '').trim();
   if (correctDrink) {
     const winners = Object.entries(st.drinkAnswers || {}).filter(([, d]) => d === correctDrink).map(([id]) => id);
-    for (const id of winners) await GameOps.addScore(Session.code, id, 2);
+    for (const id of winners) { try { await GameOps.addScore(Session.code, id, 2); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
   }
   if (typeof stopSpotifyPlayback === 'function') stopSpotifyPlayback();
   const nextIndex = st.index + 1;
   if (nextIndex >= st.list.length) {
-    await GameOps.setPhase(Session.code, 'round4-score');
+    await withRetry(() => GameOps.setPhase(Session.code, 'round4-score'));
     showScoreR4();
     return;
   }
   const next = { ...st, index: nextIndex, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
-  await GameOps.setSoundtrack(Session.code, next);
+  await withRetry(() => GameOps.setSoundtrack(Session.code, next));
   renderSoundtrack({ ...latestLobby, soundtrack: next });
 }
 
@@ -1702,13 +1714,13 @@ async function hostNextBiechtPlay() {
   const nextIndex = b.index + 1;
   if (nextIndex >= b.order.length) {
     const next = { ...b, stage: 'voting' };
-    await GameOps.setBiecht(Session.code, next);
+    await withRetry(() => GameOps.setBiecht(Session.code, next));
     go('s-round5-vote');
     renderBiecht({ ...latestLobby, biecht: next });
     return;
   }
   const next = { ...b, index: nextIndex };
-  await GameOps.setBiecht(Session.code, next);
+  await withRetry(() => GameOps.setBiecht(Session.code, next));
   renderBiecht({ ...latestLobby, biecht: next });
 }
 

@@ -312,7 +312,7 @@ function renderWaitingScreen(lobby) {
 }
 
 async function hostStartGame() {
-  await GameOps.setPhase(Session.code, 'round1-intro');
+  await withRetry(() => GameOps.setPhase(Session.code, 'round1-intro'));
   go('s-round1-intro');
 }
 
@@ -414,17 +414,17 @@ function initMaskDrag() {
 async function confirmMaskAndContinue() {
   if (Session.code && Session.playerId) {
     try {
-      await GameOps.submitPhoto(Session.code, Session.playerId, {
+      await withRetry(() => GameOps.submitPhoto(Session.code, Session.playerId, {
         url: pendingPhotoDataUrl, maskX: maskPos.x, maskY: maskPos.y, maskScale: maskPos.size,
-      });
-    } catch (e) { /* local demo mode */ }
+      }));
+    } catch (e) { /* local demo mode, or a photo submit that never made it through — Round 2 falls back gracefully with fewer real photos */ }
   }
   go('s-dossier-voice');
 }
 
 async function skipMaskAndContinue() {
   if (Session.code && Session.playerId) {
-    try { await GameOps.submitPhoto(Session.code, Session.playerId, { url: pendingPhotoDataUrl }); } catch (e) { /* local demo mode */ }
+    try { await withRetry(() => GameOps.submitPhoto(Session.code, Session.playerId, { url: pendingPhotoDataUrl })); } catch (e) { /* local demo mode, or a photo submit that never made it through */ }
   }
   go('s-dossier-voice');
 }
@@ -467,10 +467,25 @@ function nextQ() {
 
 // Enige echte inzending van het dossier — gebeurt nu pas op het einde
 // van de hele setup (na tekst, foto en biecht), niet meer meteen na de
-// tekstvragen.
+// tekstvragen. Deze schrijfactie bevat AL iemands antwoorden (inclusief
+// het lievelingsnummer voor Ronde 4) — als die stilzwijgend zou mislukken
+// op een wankele verbinding, lijkt het net of alles gelukt is terwijl er
+// achteraf niets van die speler binnenkomt. Daarom hier wel degelijk
+// tonen als het na meerdere pogingen nog steeds mislukt, in plaats van
+// de fout te negeren zoals de rest van deze functie (die vangt alleen
+// het geval op waarin er nog helemaal geen lobby is, bv. lokaal testen).
 async function submitDossierAndWait() {
   if (Session.code && Session.playerId) {
-    try { await GameOps.submitDossier(Session.code, Session.playerId, Session.dossierAnswers); } catch (e) { /* local demo mode without a lobby */ }
+    try {
+      await withRetry(() => GameOps.submitDossier(Session.code, Session.playerId, Session.dossierAnswers));
+    } catch (e) {
+      const statusEl = document.getElementById('biecht-record-status');
+      if (statusEl) {
+        statusEl.style.color = 'var(--red)';
+        statusEl.textContent = 'Kon je dossier niet versturen — controleer je internetverbinding en probeer opnieuw.';
+      }
+      return;
+    }
   }
   go('s-waiting');
 }
@@ -493,8 +508,8 @@ function renderRound1Intro(lobby) {
 async function hostStartRound1() {
   const picked = pickSessionQuestions();
   const quickfire = { questions: picked.questions, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
-  await GameOps.setQuickfire(Session.code, quickfire);
-  await GameOps.setPhase(Session.code, 'quickfire-active');
+  await withRetry(() => GameOps.setQuickfire(Session.code, quickfire));
+  await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-active'));
   go('s-round1-q');
   renderQuickFire({ ...latestLobby, quickfire, phase: 'quickfire-active' });
 }
@@ -644,8 +659,8 @@ function pickRound2Photos() {
 async function hostStartRound2() {
   const picked = pickRound2Photos();
   const photoRound = { photos: picked.photos, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
-  await GameOps.setPhotoRound(Session.code, photoRound);
-  await GameOps.setPhase(Session.code, 'photoround-active');
+  await withRetry(() => GameOps.setPhotoRound(Session.code, photoRound));
+  await withRetry(() => GameOps.setPhase(Session.code, 'photoround-active'));
   go('s-round2-q');
   renderPhotoRound({ ...latestLobby, photoRound, phase: 'photoround-active' });
 }
@@ -841,14 +856,14 @@ function pickHotOrNotOrder() {
 async function hostStartHotOrNot() {
   const order = pickHotOrNotOrder();
   if (order.length === 0) {
-    await GameOps.setPhase(Session.code, 'round3-intro');
+    await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
     go('s-round3-intro');
     renderVerhoor({ ...latestLobby, phase: 'round3-intro' });
     return;
   }
   const hon = { order, index: 0, targetId: order[0], votes: {} };
-  await GameOps.setHotOrNot(Session.code, hon);
-  await GameOps.setPhase(Session.code, 'hotornot');
+  await withRetry(() => GameOps.setHotOrNot(Session.code, hon));
+  await withRetry(() => GameOps.setPhase(Session.code, 'hotornot'));
   go('s-hotornot');
   // Don't wait on the subscription round-trip to populate the screen —
   // render with what we just wrote so the host never sees a blank screen.
@@ -910,13 +925,13 @@ async function nextHotOrNot() {
   const hon = latestLobby.hotornot;
   const nextIndex = hon.index + 1;
   if (nextIndex >= hon.order.length) {
-    await GameOps.setPhase(Session.code, 'round3-intro');
+    await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
     go('s-round3-intro');
     renderVerhoor({ ...latestLobby, phase: 'round3-intro' });
     return;
   }
   const next = { order: hon.order, index: nextIndex, targetId: hon.order[nextIndex], votes: {} };
-  await GameOps.setHotOrNot(Session.code, next);
+  await withRetry(() => GameOps.setHotOrNot(Session.code, next));
   renderHotOrNot({ ...latestLobby, hotornot: next });
 }
 
@@ -957,8 +972,8 @@ function speakConfession(text) {
 async function hostStartVerhoor() {
   const picked = pickRound3Confessions();
   const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
-  await GameOps.setVerhoor(Session.code, verhoor);
-  await GameOps.setPhase(Session.code, 'verhoor-active');
+  await withRetry(() => GameOps.setVerhoor(Session.code, verhoor));
+  await withRetry(() => GameOps.setPhase(Session.code, 'verhoor-active'));
   go('s-round3-q');
   renderVerhoor({ ...latestLobby, verhoor, phase: 'verhoor-active' });
 }
@@ -1063,8 +1078,8 @@ async function awardVerhoorBonus() {
   const v = latestLobby.verhoor;
   if (!v || v.bonusGiven) return;
   const q = v.list[v.index];
-  await GameOps.addScore(Session.code, q.playerId, 2);
-  await GameOps.setVerhoor(Session.code, { ...v, bonusGiven: true });
+  try { await GameOps.addScore(Session.code, q.playerId, 2); } catch (e) { /* one failed score-add shouldn't block the round */ }
+  await withRetry(() => GameOps.setVerhoor(Session.code, { ...v, bonusGiven: true }));
   renderVerhoor({ ...latestLobby, verhoor: { ...v, bonusGiven: true } });
 }
 
@@ -1118,12 +1133,12 @@ async function hostStartRound4() {
   const soundtrack = await pickSoundtrack();
   if (soundtrack) {
     const state = { list: soundtrack.list, players: soundtrack.players, index: 0, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
-    await GameOps.setSoundtrack(Session.code, state);
-    await GameOps.setPhase(Session.code, 'soundtrack-active');
+    await withRetry(() => GameOps.setSoundtrack(Session.code, state));
+    await withRetry(() => GameOps.setPhase(Session.code, 'soundtrack-active'));
     go('s-round4-soundtrack-q');
     renderSoundtrack({ ...latestLobby, soundtrack: state, phase: 'soundtrack-active' });
   } else {
-    await GameOps.setPhase(Session.code, 'round4-whoami');
+    await withRetry(() => GameOps.setPhase(Session.code, 'round4-whoami'));
     startRound4();
   }
 }
@@ -1476,7 +1491,7 @@ async function startBiechtRecording() {
 
 async function skipBiechtRecording() {
   if (Session.code && Session.playerId) {
-    try { await GameOps.markVoiceSkipped(Session.code, Session.playerId); } catch (e) { /* local demo mode */ }
+    try { await withRetry(() => GameOps.markVoiceSkipped(Session.code, Session.playerId)); } catch (e) { /* local demo mode, or a marker that never made it through */ }
   }
   await submitDossierAndWait();
 }
@@ -1530,8 +1545,16 @@ function resetBiechtRecording() {
 
 async function confirmBiechtRecording() {
   if (!distortedVoiceDataUrl || !Session.code) { await submitDossierAndWait(); return; }
-  await Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl);
-  await GameOps.markVoiceReady(Session.code, Session.playerId);
+  try {
+    await withRetry(() => Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl));
+    await withRetry(() => GameOps.markVoiceReady(Session.code, Session.playerId));
+  } catch (e) {
+    // De opname kwam er niet door — de speler mag verder zonder biecht
+    // in plaats van hier voorgoed vast te zitten; het dossier zelf (met
+    // alle tekstantwoorden) moet hoe dan ook nog verstuurd worden.
+    const statusEl = document.getElementById('biecht-record-status');
+    if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Opname kon niet verstuurd worden — ga verder zonder biecht.'; }
+  }
   await submitDossierAndWait();
 }
 
@@ -1636,13 +1659,13 @@ function renderRound5Intro(lobby) {
 async function hostStartBiechtPlayback() {
   const order = latestLobby.players.filter(p => p.voiceReady).map(p => p.id);
   if (order.length === 0) {
-    await GameOps.setPhase(Session.code, 'round5-final');
+    await withRetry(() => GameOps.setPhase(Session.code, 'round5-final'));
     showFinal();
     return;
   }
   const biecht = { stage: 'playback', order, index: 0, votes: {}, bonusGiven: false };
-  await GameOps.setBiecht(Session.code, biecht);
-  await GameOps.setPhase(Session.code, 'biecht-active');
+  await withRetry(() => GameOps.setBiecht(Session.code, biecht));
+  await withRetry(() => GameOps.setPhase(Session.code, 'biecht-active'));
   go('s-round5-play');
   renderBiecht({ ...latestLobby, biecht, phase: 'biecht-active' });
 }
@@ -1739,9 +1762,9 @@ async function finishBiechtVoting() {
   const maxVotes = Math.max(0, ...Object.values(tally));
   if (maxVotes > 0) {
     const winners = Object.entries(tally).filter(([, c]) => c === maxVotes).map(([pid]) => pid);
-    for (const pid of winners) await GameOps.addScore(Session.code, pid, 5);
+    for (const pid of winners) { try { await GameOps.addScore(Session.code, pid, 5); } catch (e) { /* one failed score-add shouldn't block the finale */ } }
   }
-  await GameOps.setPhase(Session.code, 'final');
+  await withRetry(() => GameOps.setPhase(Session.code, 'final'));
   showFinal();
 }
 

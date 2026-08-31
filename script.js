@@ -124,6 +124,27 @@ let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Que
 const Session = { code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {} };
 let latestLobby = null;
 
+// Ná een eigen schrijfactie renderen we meteen lokaal (optimistic update)
+// zonder te wachten op de round-trip van de backend-subscription. Deed
+// een aanroeper dat door enkel een NIEUW object aan render*() door te
+// geven (bv. renderQuickFire({ ...latestLobby, quickfire: next })), dan
+// bleef de echte latestLobby zelf stiekem verouderd — en functies die
+// latestLobby rechtstreeks uitlezen (zoals tickQFCountdown, dat elke
+// 200ms checkt of de tijd om is) zagen dan nog de oude ronde-state.
+// Op de lokale testbackend valt dat niet op (die levert updates binnen
+// hetzelfde tabblad synchroon af), maar over een echte Firestore-
+// verbinding kan de eigen snapshot-echo een fractie later aankomen dan
+// deze functie klaar is — en precies in dat gaatje leest tickQFCountdown
+// de stale data, ziet "revealed: true" van de vorige vraag staan, en
+// stopt zijn eigen net-gestarte interval meteen weer. Vandaar dat vraag
+// 2 leek te bevriezen met de tijd meteen op 0. Door latestLobby hier
+// zelf ook meteen bij te werken, ziet niets in de app ooit nog die
+// tussentijdse verouderde staat.
+function updateLocalLobby(patch) {
+  latestLobby = { ...latestLobby, ...patch };
+  return latestLobby;
+}
+
 function go(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(screenId).classList.add('active');
@@ -511,7 +532,7 @@ async function hostStartRound1() {
   await withRetry(() => GameOps.setQuickfire(Session.code, quickfire));
   await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-active'));
   go('s-round1-q');
-  renderQuickFire({ ...latestLobby, quickfire, phase: 'quickfire-active' });
+  renderQuickFire(updateLocalLobby({ quickfire, phase: 'quickfire-active' }));
 }
 
 function renderQuickFire(lobby) {
@@ -590,14 +611,14 @@ async function submitQFGuess(name) {
   await GameOps.submitQFGuess(Session.code, Session.playerId, name);
   const qf = latestLobby.quickfire;
   const answers = { ...(qf.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
-  renderQuickFire({ ...latestLobby, quickfire: { ...qf, answers } });
+  renderQuickFire(updateLocalLobby({ quickfire: { ...qf, answers } }));
 }
 
 async function hostRevealQF() {
   const qf = latestLobby.quickfire;
   if (!qf || qf.revealed) return;
   await GameOps.revealQuickfire(Session.code, qf.index, QUICKFIRE_SECONDS);
-  renderQuickFire({ ...latestLobby, quickfire: { ...qf, revealed: true } });
+  renderQuickFire(updateLocalLobby({ quickfire: { ...qf, revealed: true } }));
 }
 
 async function hostNextQF() {
@@ -610,7 +631,7 @@ async function hostNextQF() {
   }
   const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setQuickfire(Session.code, next));
-  renderQuickFire({ ...latestLobby, quickfire: next });
+  renderQuickFire(updateLocalLobby({ quickfire: next }));
 }
 
 function maskSvgHtml() {
@@ -656,7 +677,7 @@ async function hostStartRound2() {
   await withRetry(() => GameOps.setPhotoRound(Session.code, photoRound));
   await withRetry(() => GameOps.setPhase(Session.code, 'photoround-active'));
   go('s-round2-q');
-  renderPhotoRound({ ...latestLobby, photoRound, phase: 'photoround-active' });
+  renderPhotoRound(updateLocalLobby({ photoRound, phase: 'photoround-active' }));
 }
 
 function renderPhotoRound(lobby) {
@@ -763,14 +784,14 @@ async function submitPhotoGuess(name) {
   await GameOps.submitPhotoGuess(Session.code, Session.playerId, name);
   const pr = latestLobby.photoRound;
   const answers = { ...(pr.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
-  renderPhotoRound({ ...latestLobby, photoRound: { ...pr, answers } });
+  renderPhotoRound(updateLocalLobby({ photoRound: { ...pr, answers } }));
 }
 
 async function hostRevealPhoto() {
   const pr = latestLobby.photoRound;
   if (!pr || pr.revealed) return;
   await GameOps.revealPhotoRound(Session.code, pr.index, PHOTOROUND_SECONDS);
-  renderPhotoRound({ ...latestLobby, photoRound: { ...pr, revealed: true } });
+  renderPhotoRound(updateLocalLobby({ photoRound: { ...pr, revealed: true } }));
 }
 
 async function hostNextPhoto() {
@@ -783,7 +804,7 @@ async function hostNextPhoto() {
   }
   const next = { ...pr, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setPhotoRound(Session.code, next));
-  renderPhotoRound({ ...latestLobby, photoRound: next });
+  renderPhotoRound(updateLocalLobby({ photoRound: next }));
 }
 
 async function pushRoundScore(points) {
@@ -846,7 +867,7 @@ async function hostStartHotOrNot() {
   if (order.length === 0) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
     go('s-round3-intro');
-    renderVerhoor({ ...latestLobby, phase: 'round3-intro' });
+    renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
     return;
   }
   const hon = { order, index: 0, targetId: order[0], votes: {} };
@@ -855,7 +876,7 @@ async function hostStartHotOrNot() {
   go('s-hotornot');
   // Don't wait on the subscription round-trip to populate the screen —
   // render with what we just wrote so the host never sees a blank screen.
-  renderHotOrNot({ ...latestLobby, hotornot: hon, phase: 'hotornot' });
+  renderHotOrNot(updateLocalLobby({ hotornot: hon, phase: 'hotornot' }));
 }
 
 function renderHotOrNot(lobby) {
@@ -906,7 +927,7 @@ async function castHotOrNotVote(vote) {
   const hon = latestLobby.hotornot;
   const votes = { ...(hon.votes || {}), [Session.playerId]: vote };
   await GameOps.voteHotOrNot(Session.code, hon.targetId, Session.playerId, vote);
-  renderHotOrNot({ ...latestLobby, hotornot: { ...hon, votes } });
+  renderHotOrNot(updateLocalLobby({ hotornot: { ...hon, votes } }));
 }
 
 async function nextHotOrNot() {
@@ -915,12 +936,12 @@ async function nextHotOrNot() {
   if (nextIndex >= hon.order.length) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
     go('s-round3-intro');
-    renderVerhoor({ ...latestLobby, phase: 'round3-intro' });
+    renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
     return;
   }
   const next = { order: hon.order, index: nextIndex, targetId: hon.order[nextIndex], votes: {} };
   await withRetry(() => GameOps.setHotOrNot(Session.code, next));
-  renderHotOrNot({ ...latestLobby, hotornot: next });
+  renderHotOrNot(updateLocalLobby({ hotornot: next }));
 }
 
 // ── Ronde 3: Verhoor (live, host-gestuurd) ─
@@ -963,7 +984,7 @@ async function hostStartVerhoor() {
   await withRetry(() => GameOps.setVerhoor(Session.code, verhoor));
   await withRetry(() => GameOps.setPhase(Session.code, 'verhoor-active'));
   go('s-round3-q');
-  renderVerhoor({ ...latestLobby, verhoor, phase: 'verhoor-active' });
+  renderVerhoor(updateLocalLobby({ verhoor, phase: 'verhoor-active' }));
 }
 
 function renderVerhoor(lobby) {
@@ -1044,14 +1065,14 @@ async function submitMyVerhoorGuess(targetId) {
   await GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId);
   const v = latestLobby.verhoor;
   const answers = { ...(v.answers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
-  renderVerhoor({ ...latestLobby, verhoor: { ...v, answers } });
+  renderVerhoor(updateLocalLobby({ verhoor: { ...v, answers } }));
 }
 
 async function hostRevealVerhoor() {
   const v = latestLobby.verhoor;
   if (!v || v.revealed) return;
   await GameOps.revealVerhoor(Session.code, v.index, VERHOOR_SECONDS);
-  renderVerhoor({ ...latestLobby, verhoor: { ...v, revealed: true } });
+  renderVerhoor(updateLocalLobby({ verhoor: { ...v, revealed: true } }));
 }
 
 async function awardVerhoorBonus() {
@@ -1060,7 +1081,7 @@ async function awardVerhoorBonus() {
   const q = v.list[v.index];
   try { await GameOps.addScore(Session.code, q.playerId, 2); } catch (e) { /* one failed score-add shouldn't block the round */ }
   await withRetry(() => GameOps.setVerhoor(Session.code, { ...v, bonusGiven: true }));
-  renderVerhoor({ ...latestLobby, verhoor: { ...v, bonusGiven: true } });
+  renderVerhoor(updateLocalLobby({ verhoor: { ...v, bonusGiven: true } }));
 }
 
 async function hostNextVerhoor() {
@@ -1073,7 +1094,7 @@ async function hostNextVerhoor() {
   }
   const next = { ...v, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
   await withRetry(() => GameOps.setVerhoor(Session.code, next));
-  renderVerhoor({ ...latestLobby, verhoor: next });
+  renderVerhoor(updateLocalLobby({ verhoor: next }));
 }
 
 function showScoreR3() {
@@ -1116,7 +1137,7 @@ async function hostStartRound4() {
     await withRetry(() => GameOps.setSoundtrack(Session.code, state));
     await withRetry(() => GameOps.setPhase(Session.code, 'soundtrack-active'));
     go('s-round4-soundtrack-q');
-    renderSoundtrack({ ...latestLobby, soundtrack: state, phase: 'soundtrack-active' });
+    renderSoundtrack(updateLocalLobby({ soundtrack: state, phase: 'soundtrack-active' }));
   } else {
     await withRetry(() => GameOps.setPhase(Session.code, 'round4-whoami'));
     startRound4();
@@ -1364,7 +1385,7 @@ async function submitSoundtrackOwnerGuess(targetId) {
   await GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId);
   const st = latestLobby.soundtrack;
   const ownerAnswers = { ...(st.ownerAnswers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
-  renderSoundtrack({ ...latestLobby, soundtrack: { ...st, ownerAnswers } });
+  renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, ownerAnswers } }));
 }
 
 async function hostRevealSoundtrackOwner() {
@@ -1377,7 +1398,7 @@ async function hostRevealSoundtrackOwner() {
   const drinkOptions = buildDrinkOptions(st.list, st.index);
   const next = { ...st, stage: 'drink', revealed: true, drinkOptions, drinkAnswers: {} };
   await withRetry(() => GameOps.setSoundtrack(Session.code, next));
-  renderSoundtrack({ ...latestLobby, soundtrack: next });
+  renderSoundtrack(updateLocalLobby({ soundtrack: next }));
 }
 
 async function submitSoundtrackDrinkGuess(drinkText) {
@@ -1385,7 +1406,7 @@ async function submitSoundtrackDrinkGuess(drinkText) {
   await GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText);
   const st = latestLobby.soundtrack;
   const drinkAnswers = { ...(st.drinkAnswers || {}), [Session.playerId]: drinkText };
-  renderSoundtrack({ ...latestLobby, soundtrack: { ...st, drinkAnswers } });
+  renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, drinkAnswers } }));
 }
 
 async function hostNextSoundtrack() {
@@ -1405,7 +1426,7 @@ async function hostNextSoundtrack() {
   }
   const next = { ...st, index: nextIndex, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
   await withRetry(() => GameOps.setSoundtrack(Session.code, next));
-  renderSoundtrack({ ...latestLobby, soundtrack: next });
+  renderSoundtrack(updateLocalLobby({ soundtrack: next }));
 }
 
 // ── Ronde 5: Biecht-Finale (opname + stemvervorming + stemronde) ──
@@ -1647,7 +1668,7 @@ async function hostStartBiechtPlayback() {
   await withRetry(() => GameOps.setBiecht(Session.code, biecht));
   await withRetry(() => GameOps.setPhase(Session.code, 'biecht-active'));
   go('s-round5-play');
-  renderBiecht({ ...latestLobby, biecht, phase: 'biecht-active' });
+  renderBiecht(updateLocalLobby({ biecht, phase: 'biecht-active' }));
 }
 
 async function renderBiecht(lobby) {
@@ -1719,12 +1740,12 @@ async function hostNextBiechtPlay() {
     const next = { ...b, stage: 'voting' };
     await withRetry(() => GameOps.setBiecht(Session.code, next));
     go('s-round5-vote');
-    renderBiecht({ ...latestLobby, biecht: next });
+    renderBiecht(updateLocalLobby({ biecht: next }));
     return;
   }
   const next = { ...b, index: nextIndex };
   await withRetry(() => GameOps.setBiecht(Session.code, next));
-  renderBiecht({ ...latestLobby, biecht: next });
+  renderBiecht(updateLocalLobby({ biecht: next }));
 }
 
 async function castBiechtVote(targetId) {
@@ -1732,7 +1753,8 @@ async function castBiechtVote(targetId) {
   await GameOps.voteBiecht(Session.code, targetId, Session.playerId);
   const b = latestLobby.biecht;
   const votes = { ...(b.votes || {}), [Session.playerId]: targetId };
-  renderBiechtVoting({ ...latestLobby, biecht: { ...b, votes } }, { ...b, votes });
+  const updatedBiecht = { ...b, votes };
+  renderBiechtVoting(updateLocalLobby({ biecht: updatedBiecht }), updatedBiecht);
 }
 
 async function finishBiechtVoting() {

@@ -268,6 +268,32 @@ async function setQuickfire(code, quickfireState) {
   return Backend.updateLobby(code, (lobby) => { lobby.quickfire = quickfireState; });
 }
 
+// Onthulling + puntentoekenning in ÉÉN atomaire schrijfactie, zodat elke
+// speler dit veilig mag proberen zodra de tijd om is — niet enkel de host.
+// Een tabblad op de achtergrond (scherm op slot, andere app) kan door de
+// browser worden vertraagd of zelfs volledig gepauzeerd, en als alleen de
+// host dit mag triggeren bleef de hele groep dan voor altijd op "0"
+// staan wachten op een tik die nooit kwam. Nu maakt het niet uit wiens
+// toestel toevallig nog actief is: de eerste geslaagde poging wint, en
+// de guard-check op qf.revealed zit IN dezelfde transactie, dus dubbele
+// pogingen door twee gelijktijdige spelers kunnen nooit dubbel scoren.
+async function revealQuickfire(code, index, secondsAllowed) {
+  return Backend.updateLobby(code, (lobby) => {
+    const qf = lobby.quickfire;
+    if (!qf || qf.index !== index || qf.revealed) return;
+    const q = qf.questions[qf.index];
+    for (const [voterId, a] of Object.entries(qf.answers || {})) {
+      if (a.guess === q.correctPlayer) {
+        const remaining = Math.max(0, secondsAllowed - (a.at - qf.questionStartAt) / 1000);
+        const pts = Math.max(1, Math.round(remaining) + 1);
+        const p = findPlayer(lobby, voterId);
+        if (p) p.score = (p.score || 0) + pts;
+      }
+    }
+    qf.revealed = true;
+  });
+}
+
 async function submitQFGuess(code, playerId, guess) {
   return Backend.updateLobby(code, (lobby) => {
     if (!lobby.quickfire) return;
@@ -279,6 +305,25 @@ async function submitQFGuess(code, playerId, guess) {
 
 async function setPhotoRound(code, photoRoundState) {
   return Backend.updateLobby(code, (lobby) => { lobby.photoRound = photoRoundState; });
+}
+
+// Zelfde atomaire onthulling + score-toekenning als revealQuickfire —
+// zie de uitleg daar.
+async function revealPhotoRound(code, index, secondsAllowed) {
+  return Backend.updateLobby(code, (lobby) => {
+    const pr = lobby.photoRound;
+    if (!pr || pr.index !== index || pr.revealed) return;
+    const photo = pr.photos[pr.index];
+    for (const [voterId, a] of Object.entries(pr.answers || {})) {
+      if (a.guess === photo.player) {
+        const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
+        const pts = Math.max(1, Math.round((1 - elapsedAtGuess / secondsAllowed) * 8) + 2);
+        const p = findPlayer(lobby, voterId);
+        if (p) p.score = (p.score || 0) + pts;
+      }
+    }
+    pr.revealed = true;
+  });
 }
 
 async function submitPhotoGuess(code, playerId, guess) {
@@ -304,6 +349,33 @@ async function voteHotOrNot(code, targetPlayerId, voterId, vote) {
 
 async function setVerhoor(code, verhoorState) {
   return Backend.updateLobby(code, (lobby) => { lobby.verhoor = verhoorState; });
+}
+
+// Zelfde atomaire onthulling + score-toekenning als revealQuickfire —
+// zie de uitleg daar. Kent hier ook de -3-boete toe aan wie ontmaskerd
+// werd, in dezelfde schrijfactie.
+async function revealVerhoor(code, index, secondsAllowed) {
+  return Backend.updateLobby(code, (lobby) => {
+    const v = lobby.verhoor;
+    if (!v || v.index !== index || v.revealed) return;
+    const q = v.list[v.index];
+    const answers = v.answers || {};
+    let caught = false;
+    for (const [voterId, a] of Object.entries(answers)) {
+      if (a.guess === q.playerId) {
+        caught = true;
+        const remaining = Math.max(0, secondsAllowed - (a.at - v.questionStartAt) / 1000);
+        const pts = Math.max(1, Math.round(remaining) + 1);
+        const p = findPlayer(lobby, voterId);
+        if (p) p.score = (p.score || 0) + pts;
+      }
+    }
+    if (caught) {
+      const confessor = findPlayer(lobby, q.playerId);
+      if (confessor) confessor.score = (confessor.score || 0) - 3;
+    }
+    v.revealed = true;
+  });
 }
 
 async function submitVerhoorGuess(code, playerId, guess) {
@@ -365,9 +437,9 @@ async function submitSoundtrackDrinkGuess(code, playerId, drink) {
 
 window.GameOps = {
   submitDossier, submitPhoto, setPhase, addScore,
-  setQuickfire, submitQFGuess, setPhotoRound, submitPhotoGuess,
+  setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
   setHotOrNot, voteHotOrNot,
-  setVerhoor, submitVerhoorGuess,
+  setVerhoor, submitVerhoorGuess, revealVerhoor,
   setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht,
   setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess,
 };

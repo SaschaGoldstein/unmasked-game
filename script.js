@@ -572,11 +572,14 @@ function tickQFCountdown() {
   const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
   document.getElementById('timer-num').textContent = Math.ceil(remaining);
   document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
-  // Keep ticking (don't stop the interval here) so a failed reveal attempt
-  // — a dropped write on a real, imperfect mobile network — gets retried
-  // instead of leaving the round stuck forever. qfRevealInFlight stops
-  // overlapping attempts from double-scoring the same question.
-  if (remaining <= 0 && Session.isHost && !qfRevealInFlight) {
+  // Elke speler probeert dit, niet enkel de host: een tabblad op de
+  // achtergrond (scherm op slot, andere app) kan door de browser worden
+  // vertraagd of gepauzeerd, en als alleen de host dit mocht triggeren
+  // bleef de hele groep voor altijd op "0" hangen zodra precies dát
+  // toestel even niet actief was. GameOps.revealQuickfire is één
+  // atomaire schrijfactie (zie backend.js) die zichzelf checkt op
+  // "al onthuld?", dus gelijktijdige pogingen kunnen nooit dubbel scoren.
+  if (remaining <= 0 && !qfRevealInFlight) {
     qfRevealInFlight = true;
     hostRevealQF().catch(() => { /* will retry on the next tick */ }).finally(() => { qfRevealInFlight = false; });
   }
@@ -593,16 +596,7 @@ async function submitQFGuess(name) {
 async function hostRevealQF() {
   const qf = latestLobby.quickfire;
   if (!qf || qf.revealed) return;
-  const q = qf.questions[qf.index];
-  const answers = qf.answers || {};
-  for (const [voterId, a] of Object.entries(answers)) {
-    if (a.guess === q.correctPlayer) {
-      const remaining = Math.max(0, QUICKFIRE_SECONDS - (a.at - qf.questionStartAt) / 1000);
-      const pts = Math.max(1, Math.round(remaining) + 1);
-      try { await GameOps.addScore(Session.code, voterId, pts); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ }
-    }
-  }
-  await GameOps.setQuickfire(Session.code, { ...qf, revealed: true });
+  await GameOps.revealQuickfire(Session.code, qf.index, QUICKFIRE_SECONDS);
   renderQuickFire({ ...latestLobby, quickfire: { ...qf, revealed: true } });
 }
 
@@ -755,7 +749,10 @@ function tickPhotoRound() {
   document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
   document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
   const anyCorrect = Object.values(pr.answers || {}).some(a => a.guess === photo.player);
-  if ((progress >= 1 || anyCorrect) && Session.isHost && !photoRevealInFlight) {
+  // Elke speler probeert dit, niet enkel de host — zie de uitleg bij
+  // tickQFCountdown. GameOps.revealPhotoRound is atomair en veilig bij
+  // gelijktijdige pogingen.
+  if ((progress >= 1 || anyCorrect) && !photoRevealInFlight) {
     photoRevealInFlight = true;
     hostRevealPhoto().catch(() => { /* will retry on the next tick */ }).finally(() => { photoRevealInFlight = false; });
   }
@@ -772,16 +769,7 @@ async function submitPhotoGuess(name) {
 async function hostRevealPhoto() {
   const pr = latestLobby.photoRound;
   if (!pr || pr.revealed) return;
-  const photo = pr.photos[pr.index];
-  const answers = pr.answers || {};
-  for (const [voterId, a] of Object.entries(answers)) {
-    if (a.guess === photo.player) {
-      const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
-      const pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
-      try { await GameOps.addScore(Session.code, voterId, pts); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ }
-    }
-  }
-  await GameOps.setPhotoRound(Session.code, { ...pr, revealed: true });
+  await GameOps.revealPhotoRound(Session.code, pr.index, PHOTOROUND_SECONDS);
   renderPhotoRound({ ...latestLobby, photoRound: { ...pr, revealed: true } });
 }
 
@@ -1042,7 +1030,10 @@ function tickVerhoorCountdown() {
   const remaining = Math.max(0, VERHOOR_SECONDS - elapsed);
   document.getElementById('r3-timer-num').textContent = Math.ceil(remaining);
   document.getElementById('r3-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / VERHOOR_SECONDS));
-  if (remaining <= 0 && Session.isHost && !verhoorRevealInFlight) {
+  // Elke speler probeert dit, niet enkel de host — zie de uitleg bij
+  // tickQFCountdown. GameOps.revealVerhoor is atomair en veilig bij
+  // gelijktijdige pogingen.
+  if (remaining <= 0 && !verhoorRevealInFlight) {
     verhoorRevealInFlight = true;
     hostRevealVerhoor().catch(() => { /* will retry on the next tick */ }).finally(() => { verhoorRevealInFlight = false; });
   }
@@ -1059,18 +1050,7 @@ async function submitMyVerhoorGuess(targetId) {
 async function hostRevealVerhoor() {
   const v = latestLobby.verhoor;
   if (!v || v.revealed) return;
-  const q = v.list[v.index];
-  const answers = v.answers || {};
-  for (const [voterId, a] of Object.entries(answers)) {
-    if (a.guess === q.playerId) {
-      const remaining = Math.max(0, VERHOOR_SECONDS - (a.at - v.questionStartAt) / 1000);
-      const pts = Math.max(1, Math.round(remaining) + 1);
-      try { await GameOps.addScore(Session.code, voterId, pts); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ }
-    }
-  }
-  const caught = Object.values(answers).some(a => a.guess === q.playerId);
-  if (caught) { try { await GameOps.addScore(Session.code, q.playerId, -3); } catch (e) { /* ignore */ } }
-  await GameOps.setVerhoor(Session.code, { ...v, revealed: true });
+  await GameOps.revealVerhoor(Session.code, v.index, VERHOOR_SECONDS);
   renderVerhoor({ ...latestLobby, verhoor: { ...v, revealed: true } });
 }
 

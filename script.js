@@ -550,6 +550,8 @@ function renderQuickFire(lobby) {
     clearInterval(qfCountdownTimer);
     qfCountdownTimer = setInterval(() => tickQFCountdown(), 200);
     tickQFCountdown();
+  } else {
+    debugQF('render-same-idx');
   }
 
   const myGuess = (qf.answers || {})[Session.playerId];
@@ -586,13 +588,27 @@ function renderQuickFire(lobby) {
 
 let qfRevealInFlight = false;
 
+// Tijdelijk zichtbaar debug-regeltje onder de timer — geen speler zal
+// hier iets van snappen, maar het laat ons bij een volgende vastloper
+// exact aflezen wat de interne staat op dat moment is (i.p.v. te moeten
+// gokken), zonder dat iemand devtools moet openen op hun telefoon.
+function debugQF(label) {
+  const el = document.getElementById('r1-debug');
+  if (!el) return;
+  const qf = latestLobby && latestLobby.quickfire;
+  if (!qf) { el.textContent = `[${label}] geen quickfire-data`; return; }
+  const elapsed = ((Date.now() - qf.questionStartAt) / 1000).toFixed(1);
+  el.textContent = `[${label}] idx=${qf.index} revealed=${qf.revealed} elapsed=${elapsed}s lastRendered=${lastRenderedQFIndex} timerId=${qfCountdownTimer} host=${Session.isHost}`;
+}
+
 function tickQFCountdown() {
   const qf = latestLobby && latestLobby.quickfire;
-  if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); return; }
+  if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); debugQF('tick-stop'); return; }
   const elapsed = (Date.now() - qf.questionStartAt) / 1000;
   const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
   document.getElementById('timer-num').textContent = Math.ceil(remaining);
   document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
+  debugQF('tick');
   // Elke speler probeert dit, niet enkel de host: een tabblad op de
   // achtergrond (scherm op slot, andere app) kan door de browser worden
   // vertraagd of gepauzeerd, en als alleen de host dit mocht triggeren
@@ -621,17 +637,32 @@ async function hostRevealQF() {
   renderQuickFire(updateLocalLobby({ quickfire: { ...qf, revealed: true } }));
 }
 
+let qfNextInFlight = false;
+
 async function hostNextQF() {
-  const qf = latestLobby.quickfire;
-  const nextIndex = qf.index + 1;
-  if (nextIndex >= qf.questions.length) {
-    await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-score'));
-    showScoreR1();
-    return;
+  // Beschermt tegen een dubbele tik op "Volgende vraag" (makkelijk
+  // gedaan op een telefoonscherm) die anders twee keer dezelfde
+  // nextIndex zou berekenen vanuit dezelfde (nog niet bijgewerkte)
+  // lokale staat, en dus twee verschillende questionStartAt-tijdstempels
+  // voor "dezelfde" vraag zou wegschrijven.
+  if (qfNextInFlight) return;
+  qfNextInFlight = true;
+  try {
+    const qf = latestLobby.quickfire;
+    debugQF('next-start');
+    const nextIndex = qf.index + 1;
+    if (nextIndex >= qf.questions.length) {
+      await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-score'));
+      showScoreR1();
+      return;
+    }
+    const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+    await withRetry(() => GameOps.setQuickfire(Session.code, next));
+    renderQuickFire(updateLocalLobby({ quickfire: next }));
+    debugQF('next-done');
+  } finally {
+    qfNextInFlight = false;
   }
-  const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
-  await withRetry(() => GameOps.setQuickfire(Session.code, next));
-  renderQuickFire(updateLocalLobby({ quickfire: next }));
 }
 
 function maskSvgHtml() {

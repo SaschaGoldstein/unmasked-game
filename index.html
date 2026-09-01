@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=22" />
+  <link rel="stylesheet" href="style.css?v=23" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -377,48 +377,19 @@
   <!-- RONDE 4 INTRO -->
   <div class="screen" id="s-round4-intro">
     <div class="screen-inner centered">
-      <span class="round-intro-icon" id="r4intro-icon">🎵</span>
+      <span class="round-intro-icon">🎵</span>
       <div class="round-intro-title">Ronde 4</div>
-      <div class="round-intro-accent" id="r4intro-accent">Soundtrack &amp; Spirit</div>
-      <div class="round-intro-sub" id="r4intro-sub">De host speelt ieders lievelingsnummer af. Wie is de eigenaar? En welk drankje hoort erbij?</div>
-      <div class="rules" id="r4intro-rules-soundtrack">
+      <div class="round-intro-accent">Soundtrack &amp; Spirit</div>
+      <div class="round-intro-sub">De host speelt ieders lievelingsnummer af. Wie is de eigenaar? En welk drankje hoort erbij?</div>
+      <div class="rules">
         <div class="rule-row"><div class="rule-icon">🎧</div><div class="rule-text">De host speelt een <strong>fragment</strong> van ieders lievelingsnummer</div></div>
         <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad de eigenaar → daarna een <strong>bonusgok</strong> voor het lievelingsdrankje</div></div>
         <div class="rule-row"><div class="rule-icon">🥤</div><div class="rule-text">Beide goed = <strong>extra punten</strong></div></div>
-      </div>
-      <div class="rules" id="r4intro-rules-whoami" style="display:none;">
-        <div class="rule-row"><div class="rule-icon">🔎</div><div class="rule-text">Aanwijzingen komen <strong>één voor één</strong> binnen</div></div>
-        <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad na aanwijzing 1: <strong>6pt</strong> · na 2: <strong>4pt</strong> · na 3: <strong>2pt</strong></div></div>
-        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text">Maximum <strong>15 seconden</strong> per persoon</div></div>
       </div>
       <button class="btn secondary" id="r4intro-spotify-connect-btn" style="margin-top:16px;display:none;" onclick="spotifyConnect()">🎧 Host: verbind met Spotify</button>
       <div class="label-sm" id="r4intro-spotify-status" style="margin-top:8px;"></div>
       <button class="btn amber" id="r4intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartRound4()">Start de ronde →</button>
       <div class="label-sm" id="r4intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
-    </div>
-  </div>
-
-  <!-- RONDE 4 VRAAG -->
-  <div class="screen" id="s-round4-q">
-    <div class="round-header">
-      <div class="round-badge">Ronde 4</div>
-      <div class="round-title">Wie Ben Ik</div>
-      <div class="round-score" id="r4-score">0 pt</div>
-    </div>
-    <div class="screen-inner" style="padding-top:16px;">
-      <div class="progress-bar"><div class="progress-fill" id="r4-progress" style="width:20%"></div></div>
-      <div class="label-sm" id="r4-qnum">Persoon 1 van 5</div>
-      <div class="wsd-clue-list" id="r4-clues"></div>
-      <div class="timer-ring">
-        <svg width="72" height="72" viewBox="0 0 72 72">
-          <circle cx="36" cy="36" r="30" fill="none" stroke="#2e2d45" stroke-width="6"/>
-          <circle id="r4-timer-arc" cx="36" cy="36" r="30" fill="none" stroke="#ff3d6b" stroke-width="6" stroke-dasharray="188.5" stroke-dashoffset="0" stroke-linecap="round"/>
-        </svg>
-        <div class="timer-num" id="r4-timer-num">15</div>
-      </div>
-      <div class="player-grid" id="r4-players"></div>
-      <div class="r2-feedback" id="r4-feedback"></div>
-      <button class="btn" id="r4-next-btn" style="display:none;margin-top:4px;" onclick="nextR4Q()">Volgende persoon →</button>
     </div>
   </div>
 
@@ -529,10 +500,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=22"></script>
-<script src="backend.js?v=22"></script>
-<script src="spotify-config.js?v=22"></script>
-<script src="spotify.js?v=22"></script>
-<script src="script.js?v=22"></script>
+<script src="firebase-config.js?v=23"></script>
+<script src="backend.js?v=23"></script>
+<script src="spotify-config.js?v=23"></script>
+<script src="spotify.js?v=23"></script>
+<script src="script.js?v=23"></script>
 </body>
 </html>

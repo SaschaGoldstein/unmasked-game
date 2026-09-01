@@ -46,17 +46,6 @@ const CONFESSIONS = [
   { text: '"Ik heb ooit een taxi laten wachten omdat ik nog snel mijn haar wilde doen."', player: 'Nina' },
 ];
 
-const WHOAMI_BANK = [
-  { clues: ['Wordt heel vroeg wakker, zelfs in het weekend.', 'Heeft een leeslijst die alleen maar langer wordt.', 'Drinkt koffie altijd zwart.'], player: 'Nina' },
-  { clues: ['Kan totaal niet tegen slechte wifi.', 'Heeft een la vol opladers die nergens meer bij passen.', 'Kijkt alles op social media, post zelf nooit iets.'], player: 'Thomas' },
-  { clues: ['Praat hardop tegen huisdieren, ook als er niemand thuis is.', 'Heeft een speciale mok die niemand anders mag gebruiken.', 'Kan een hele avond over één hobby praten.'], player: 'Emma' },
-  { clues: ['Plant elke vakantie tot op de minuut.', 'Heeft altijd een reservepowerbank bij zich.', 'Wordt nerveus van last-minute plannen.'], player: 'Sander' },
-  { clues: ['Vergeet vaak waar de sleutels liggen.', 'Zingt mee met reclames.', 'Heeft een verzameling tas­jes vol andere tasjes.'], player: 'Lien' },
-  { clues: ['Reageert als laatste in elke groepschat.', 'Heeft een geheime Spotify-playlist die niemand kent.', 'Bestelt altijd hetzelfde gerecht in een nieuw restaurant.'], player: 'Kobe' },
-  { clues: ['Kan niet slapen zonder achtergrondgeluid.', 'Heeft een lijst met films die "ooit nog eens" bekeken worden.', 'Is de eerste die weggaat van een feestje.'], player: 'Thomas' },
-  { clues: ['Onthoudt verjaardagen van bijna iedereen.', 'Heeft een la vol elastiekjes en losse batterijen.', 'Kan niet tegen ongelijke stapels.'], player: 'Nina' },
-];
-
 // Grote vragenbank waaruit Ronde 1 (Quick Fire) en Ronde 4 (Wie Ben Ik)
 // putten. Elke speler krijgt tijdens het dossier maar een willekeurige
 // subset van deze bank te zien (zie resetDossierState()), zodat niet
@@ -114,7 +103,6 @@ const DRINK_Q = 'Mijn lievelingsdrankje is:';
 let sessionDossierQs = [];
 let dossierQ = 0;
 let pendingPhotoDataUrl = null;
-let r4Q = 0, r4Score = 0, r4Timer = null, r4Time = 15, r4Answered = false, r4Questions = [], r4Timeouts = [], r4UsePlayers = PLAYERS;
 
 // ── Multiplayer session ───────────────────
 // Backed by window.Backend (see backend.js). Session tracks who we are in
@@ -210,7 +198,7 @@ const SCREEN_SEQUENCE = [
   's-round2-intro', 's-round2-q', 's-round2-score',
   's-hotornot',
   's-round3-intro', 's-round3-q', 's-round3-score',
-  's-round4-intro', 's-round4-q', 's-round4-soundtrack-q', 's-round4-score',
+  's-round4-intro', 's-round4-soundtrack-q', 's-round4-score',
   's-round5-intro', 's-round5-play', 's-round5-vote', 's-round5-final',
 ];
 
@@ -224,7 +212,6 @@ const PHASE_SYNC = {
   'round3-intro': { screen: 's-round3-intro', action: () => go('s-round3-intro') },
   'verhoor-active': { screen: 's-round3-q', action: () => go('s-round3-q') },
   'round3-score': { screen: 's-round3-score', action: () => showScoreR3() },
-  'round4-whoami': { screen: 's-round4-q', action: () => startRound4() },
   'soundtrack-active': { screen: 's-round4-soundtrack-q', action: () => go('s-round4-soundtrack-q') },
   'round4-score': { screen: 's-round4-score', action: () => showScoreR4() },
   'biecht-active': { screen: 's-round5-play', action: () => go('s-round5-play') },
@@ -1146,8 +1133,12 @@ function showScoreR3() {
   go('s-round3-score');
 }
 
-// ── Ronde 4: intro — kiest Soundtrack & Spirit (met Spotify) of ──
-// de tekst-aanwijzingen-fallback "Wie Ben Ik" (zonder Spotify) ──
+// ── Ronde 4: Soundtrack & Spirit ──────────
+// Elk lievelingsnummer dat een speler in zijn dossier opgaf, wordt
+// afgespeeld — de rest raadt van wie het is. Zonder Spotify-koppeling
+// speelt er geen echt fragment, maar blijft het dezelfde ronde: de
+// getypte naam van het nummer wordt dan getoond zodat de host hem kan
+// voorlezen. Er is geen ander soort Ronde 4.
 
 function goRound4Intro() {
   go('s-round4-intro');
@@ -1160,169 +1151,55 @@ function renderRound4Intro(lobby) {
 
   const spotifyOk = typeof spotifyConfigured === 'function' && spotifyConfigured();
   const connected = spotifyOk && spotifyIsConnected();
-  document.getElementById('r4intro-icon').textContent = spotifyOk ? '🎵' : '🎭';
-  document.getElementById('r4intro-accent').textContent = spotifyOk ? 'Soundtrack & Spirit' : 'Wie Ben Ik';
-  document.getElementById('r4intro-sub').textContent = spotifyOk
-    ? 'De host speelt ieders lievelingsnummer af. Wie is de eigenaar? En welk drankje hoort erbij?'
-    : 'Aanwijzingen over een speler verschijnen één voor één, van vaag naar duidelijk. Raad zo vroeg mogelijk.';
-  document.getElementById('r4intro-rules-soundtrack').style.display = spotifyOk ? 'block' : 'none';
-  document.getElementById('r4intro-rules-whoami').style.display = spotifyOk ? 'none' : 'block';
   document.getElementById('r4intro-spotify-connect-btn').style.display = (Session.isHost && spotifyOk && !connected) ? 'block' : 'none';
-  document.getElementById('r4intro-spotify-status').textContent = !spotifyOk ? '' : (connected ? '✓ Verbonden met Spotify' : 'Nog niet verbonden — zonder Spotify gebruikt deze ronde tekstaanwijzingen.');
+  document.getElementById('r4intro-spotify-status').textContent = !spotifyOk
+    ? ''
+    : (connected ? '✓ Verbonden met Spotify' : 'Nog niet verbonden — verbind om de nummers ook echt te horen (anders leest de host de titel voor).');
   document.getElementById('r4intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r4intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
 }
 
 async function hostStartRound4() {
   const soundtrack = await pickSoundtrack();
-  if (soundtrack) {
-    const state = { list: soundtrack.list, players: soundtrack.players, index: 0, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
-    await withRetry(() => GameOps.setSoundtrack(Session.code, state));
-    await withRetry(() => GameOps.setPhase(Session.code, 'soundtrack-active'));
-    go('s-round4-soundtrack-q');
-    renderSoundtrack(updateLocalLobby({ soundtrack: state, phase: 'soundtrack-active' }));
-  } else {
-    await withRetry(() => GameOps.setPhase(Session.code, 'round4-whoami'));
-    startRound4();
+  if (!soundtrack) {
+    // Niemand vulde een lievelingsnummer in — er is niets om te raden.
+    await withRetry(() => GameOps.setPhase(Session.code, 'round4-score'));
+    showScoreR4();
+    return;
   }
+  const state = { list: soundtrack.list, players: soundtrack.players, index: 0, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
+  await withRetry(() => GameOps.setSoundtrack(Session.code, state));
+  await withRetry(() => GameOps.setPhase(Session.code, 'soundtrack-active'));
+  go('s-round4-soundtrack-q');
+  renderSoundtrack(updateLocalLobby({ soundtrack: state, phase: 'soundtrack-active' }));
 }
 
+// Elke speler die een lievelingsnummer invulde, hoort in de ronde thuis —
+// ook als Spotify de exacte titel niet kan vinden (trackId blijft dan
+// null en renderSoundtrack toont gewoon de getypte tekst in plaats van
+// een fragment af te spelen).
 async function pickSoundtrack() {
-  if (typeof spotifyConfigured !== 'function' || !spotifyConfigured() || !spotifyIsConnected()) return null;
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const withSongs = lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim());
+  if (withSongs.length === 0) return null;
+  const canSearchSpotify = typeof spotifyConfigured === 'function' && spotifyConfigured() && spotifyIsConnected();
   const list = [];
   for (const p of withSongs) {
-    const track = await spotifySearchTrack(p.dossierAnswers[SONG_Q].trim());
-    if (track) {
-      list.push({
-        trackId: track.id, trackName: track.name, artist: track.artist, albumArt: track.albumArt,
-        playerId: p.id, playerName: p.name, drink: (p.dossierAnswers[DRINK_Q] || '').trim(),
-      });
-    }
+    const query = p.dossierAnswers[SONG_Q].trim();
+    const track = canSearchSpotify ? await spotifySearchTrack(query) : null;
+    list.push({
+      trackId: track ? track.id : null,
+      trackName: track ? track.name : query,
+      artist: track ? track.artist : '',
+      albumArt: track ? track.albumArt : '',
+      playerId: p.id, playerName: p.name, drink: (p.dossierAnswers[DRINK_Q] || '').trim(),
+    });
   }
-  if (list.length < 2) return null;
   return { list: shuffle(list), players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })) };
 }
 
-// ── Ronde 4 (fallback): Wie Ben Ik ────────
-
-// Elke vraag uit de bank werkt als aanwijzing — de vraagtekst zelf leest
-// al als een korte, anonieme quote (bv. "Ik word chagrijnig van: ...").
-const R4_ELIGIBLE_QS = new Set(PARTY_QS);
-
-function pickRound4Riddles() {
-  const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const real = lobbyPlayers
-    .map(p => {
-      const entries = shuffle(Object.entries(p.dossierAnswers || {}).filter(([q, a]) => R4_ELIGIBLE_QS.has(q) && a && a.trim()));
-      const clues = entries.slice(0, 3).map(([q, a]) => `${q} ${a.trim()}`);
-      return { clues, player: p.name };
-    })
-    .filter(r => r.clues.length === 3);
-  if (real.length >= 2) {
-    r4UsePlayers = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
-    return shuffle(real).slice(0, Math.min(5, real.length));
-  }
-  r4UsePlayers = PLAYERS;
-  return shuffle(WHOAMI_BANK).slice(0, 5);
-}
-
-function startRound4() {
-  r4Q = 0; r4Score = 0;
-  r4Questions = pickRound4Riddles();
-  showR4Q();
-  go('s-round4-q');
-}
-
-function addR4Clue(text, n) {
-  const cluesEl = document.getElementById('r4-clues');
-  const d = document.createElement('div');
-  d.className = 'wsd-clue';
-  d.innerHTML = `<strong>Aanwijzing ${n}:</strong> ${text}`;
-  cluesEl.appendChild(d);
-}
-
-function showR4Q() {
-  r4Answered = false;
-  clearInterval(r4Timer);
-  r4Timeouts.forEach(t => clearTimeout(t));
-  r4Timeouts = [];
-  const q = r4Questions[r4Q];
-  document.getElementById('r4-qnum').textContent = `Persoon ${r4Q + 1} van ${r4Questions.length}`;
-  document.getElementById('r4-progress').style.width = Math.round(((r4Q + 1) / r4Questions.length) * 100) + '%';
-  document.getElementById('r4-score').textContent = r4Score + ' pt';
-  document.getElementById('r4-feedback').textContent = '';
-  document.getElementById('r4-next-btn').style.display = 'none';
-  document.getElementById('r4-clues').innerHTML = '';
-  addR4Clue(q.clues[0], 1);
-  r4Timeouts.push(setTimeout(() => { if (!r4Answered) addR4Clue(q.clues[1], 2); }, 5000));
-  r4Timeouts.push(setTimeout(() => { if (!r4Answered) addR4Clue(q.clues[2], 3); }, 10000));
-  const wrap = document.getElementById('r4-players');
-  wrap.innerHTML = '';
-  shuffle(r4UsePlayers).forEach(p => {
-    const d = document.createElement('div');
-    d.className = 'player-btn';
-    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    d.onclick = () => selectR4Answer(d, p.name, q.player);
-    wrap.appendChild(d);
-  });
-  r4Time = 15;
-  document.getElementById('r4-timer-num').textContent = r4Time;
-  document.getElementById('r4-timer-arc').style.strokeDashoffset = '0';
-  r4Timer = setInterval(() => {
-    r4Time--;
-    document.getElementById('r4-timer-num').textContent = r4Time;
-    document.getElementById('r4-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - r4Time / 15));
-    if (r4Time <= 0) { clearInterval(r4Timer); if (!r4Answered) r4TimeUp(q.player); }
-  }, 1000);
-}
-
-function selectR4Answer(el, chosen, correct) {
-  if (r4Answered) return;
-  r4Answered = true;
-  clearInterval(r4Timer);
-  r4Timeouts.forEach(t => clearTimeout(t));
-  const cluesShown = document.getElementById('r4-clues').children.length;
-  document.querySelectorAll('#r4-players .player-btn').forEach(b => {
-    b.onclick = null;
-    if (b.querySelector('.pb-name').textContent === correct) b.classList.add('correct');
-  });
-  const fb = document.getElementById('r4-feedback');
-  if (chosen === correct) {
-    el.classList.add('correct');
-    const pts = cluesShown === 1 ? 6 : cluesShown === 2 ? 4 : 2;
-    r4Score += pts;
-    document.getElementById('r4-score').textContent = r4Score + ' pt';
-    fb.innerHTML = `<span style="color:var(--green);">✓ Correct! +${pts} punten (na ${cluesShown} aanwijzing${cluesShown > 1 ? 'en' : ''})</span>`;
-  } else {
-    el.classList.add('wrong');
-    fb.innerHTML = `<span style="color:var(--red);">✗ Fout — het was ${correct}</span>`;
-  }
-  const nb = document.getElementById('r4-next-btn');
-  nb.style.display = 'block';
-  if (r4Q === r4Questions.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR4; }
-}
-
-function r4TimeUp(correct) {
-  r4Answered = true;
-  document.querySelectorAll('#r4-players .player-btn').forEach(b => {
-    b.onclick = null;
-    if (b.querySelector('.pb-name').textContent === correct) b.classList.add('correct');
-  });
-  document.getElementById('r4-feedback').innerHTML = `<span style="color:var(--red);">⏱ Tijd voorbij! Het was ${correct}</span>`;
-  const nb = document.getElementById('r4-next-btn');
-  nb.style.display = 'block';
-  if (r4Q === r4Questions.length - 1) { nb.textContent = 'Bekijk scorebord →'; nb.onclick = showScoreR4; }
-}
-
-function nextR4Q() { r4Q++; if (r4Q < r4Questions.length) showR4Q(); else showScoreR4(); }
-
-async function showScoreR4() {
-  clearInterval(r4Timer);
-  r4Timeouts.forEach(t => clearTimeout(t));
-  await pushRoundScore(r4Score);
-  buildScoreboard('scoreboard-r4', r4Score);
+function showScoreR4() {
+  buildScoreboard('scoreboard-r4', 0);
   go('s-round4-score');
 }
 
@@ -1347,6 +1224,7 @@ async function hostPlaySoundtrack() {
   const st = latestLobby.soundtrack;
   soundtrackPlayedForIndex = st.index;
   const track = st.list[st.index];
+  if (!track.trackId) return; // geen Spotify-match voor dit nummer — niets af te spelen
   await playSpotifyTrack(track.trackId, 'st-embed');
 }
 
@@ -1357,11 +1235,13 @@ function renderSoundtrack(lobby) {
   const track = st.list[st.index];
   if (st.index !== lastRenderedSoundtrackIndex) {
     lastRenderedSoundtrackIndex = st.index;
-    document.getElementById('st-embed').innerHTML = '';
+    document.getElementById('st-embed').innerHTML = track.trackId
+      ? ''
+      : `<div class="label-sm" style="text-align:center;">🔇 Geen Spotify-fragment gevonden — host, lees dit voor: <strong>${track.trackName}</strong></div>`;
     // Auto-play for the host as soon as a new song comes up — no manual
     // tap needed. The button stays available as a fallback in case the
     // browser blocks autoplay, or someone wants to replay the fragment.
-    if (Session.isHost && st.stage === 'guessing') hostPlaySoundtrack();
+    if (Session.isHost && st.stage === 'guessing' && track.trackId) hostPlaySoundtrack();
   }
   document.getElementById('st-qnum').textContent = `Nummer ${st.index + 1} van ${st.list.length}`;
   document.getElementById('st-progress').style.width = Math.round(((st.index + 1) / st.list.length) * 100) + '%';
@@ -1369,7 +1249,7 @@ function renderSoundtrack(lobby) {
   document.getElementById('st-guest-wait').style.display = Session.isHost ? 'none' : 'block';
   const alreadyPlayed = soundtrackPlayedForIndex === st.index;
   const playBtn = document.getElementById('st-host-play-btn');
-  playBtn.style.display = (Session.isHost && st.stage === 'guessing') ? 'block' : 'none';
+  playBtn.style.display = (Session.isHost && st.stage === 'guessing' && track.trackId) ? 'block' : 'none';
   playBtn.textContent = alreadyPlayed ? '▶ Opnieuw afspelen' : '▶ Speel fragment af';
 
   const myOwnerGuess = (st.ownerAnswers || {})[Session.playerId];
@@ -1819,13 +1699,10 @@ async function finishBiechtVoting() {
 // dus hier hoeft alleen de definitieve, echte stand nog getoond te worden.
 
 function showFinal() {
-  clearInterval(r4Timer);
-  r4Timeouts.forEach(t => clearTimeout(t));
   let all = liveStandings();
   if (!all) {
-    const myScore = r4Score;
     const others = PLAYERS.filter(p => p.name !== 'Sander').map(p => ({ name: p.name, pts: rand(14, 46), color: p.color }));
-    all = [{ name: 'Sander (jij)', pts: myScore, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
+    all = [{ name: 'Sander (jij)', pts: 0, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
   }
   renderFinalPodium(all);
   buildScoreboard('scoreboard-final');

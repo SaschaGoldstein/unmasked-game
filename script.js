@@ -301,7 +301,16 @@ async function joinLobbyClick() {
 
 function copyInviteCode() {
   if (!Session.code) return;
-  navigator.clipboard?.writeText(Session.code).catch(() => {});
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('join', Session.code);
+  navigator.clipboard?.writeText(url.toString()).catch(() => {});
+  const btn = document.getElementById('copy-invite-btn');
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = '✓ Gekopieerd!';
+    setTimeout(() => { btn.textContent = original; }, 1500);
+  }
 }
 
 function renderLobbyScreen(lobby) {
@@ -515,7 +524,7 @@ async function submitDossierAndWait() {
 // Zelfde patroon als Ronde 3: lobby.quickfire is de bron van waarheid,
 // de host beheert timing en kent scores toe zodat niemand dubbel telt.
 
-const QUICKFIRE_SECONDS = 5;
+const QUICKFIRE_SECONDS = 10;
 let qfCountdownTimer = null;
 let lastRenderedQFIndex = -1;
 
@@ -800,11 +809,14 @@ function tickPhotoRound() {
   const progress = Math.min(1, elapsed / PHOTOROUND_SECONDS);
   document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
   document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
-  const anyCorrect = Object.values(pr.answers || {}).some(a => a.guess === photo.player);
+  // Iedereen krijgt de volle tijd om te antwoorden — de ronde onthult
+  // pas als de tijd om is, niet zodra de eerste speler het goed heeft.
+  // De puntenverdeling (zie revealPhotoRound in backend.js) beloont wie
+  // sneller was, maar sluit trager spelers niet buiten.
   // Elke speler probeert dit, niet enkel de host — zie de uitleg bij
   // tickQFCountdown. GameOps.revealPhotoRound is atomair en veilig bij
   // gelijktijdige pogingen.
-  if ((progress >= 1 || anyCorrect) && !photoRevealInFlight) {
+  if (progress >= 1 && !photoRevealInFlight) {
     photoRevealInFlight = true;
     hostRevealPhoto().catch(() => { /* will retry on the next tick */ }).finally(() => { photoRevealInFlight = false; });
   }
@@ -1869,6 +1881,24 @@ function launchConfetti() {
 // wat al het in-memory Session-geheugen zou wissen. Als er iets bewaard
 // staat, zit de speler dus middenin een terugkeer van die redirect —
 // herstel de lobby en spring terug naar waar ze waren.
+
+// ── Rechtstreeks uitnodigen via link ──────
+// copyInviteCode() deelt een link met ?join=CODE erin, zodat vrienden de
+// code niet zelf moeten overtypen — enkel hun naam invullen en op
+// "Meedoen" tikken.
+(function prefillJoinFromLink() {
+  if (sessionStorage.getItem('unmasked:resume')) return; // sessieherstel na Spotify-login heeft voorrang
+  const url = new URL(window.location.href);
+  const joinCode = url.searchParams.get('join');
+  if (!joinCode) return;
+  url.searchParams.delete('join');
+  window.history.replaceState({}, '', url.toString());
+  go('s-join');
+  const codeInput = document.getElementById('join-code');
+  if (codeInput) codeInput.value = joinCode.toUpperCase();
+  const nameInput = document.getElementById('join-name');
+  if (nameInput) nameInput.focus();
+})();
 
 (function restoreSessionAfterRedirect() {
   const raw = sessionStorage.getItem('unmasked:resume');

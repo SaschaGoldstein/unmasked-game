@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=21" />
+  <link rel="stylesheet" href="style.css?v=22" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -49,12 +49,12 @@
     <div class="screen-inner">
       <button class="back-btn" onclick="go('s-home')">← Terug</button>
       <div class="section-title">Lobby actief!</div>
-      <div class="section-sub">Stuur de code naar je vrienden. Ze klikken "Meedoen met code" — geen account, geen download.</div>
+      <div class="section-sub">Stuur de link naar je groep — die opent meteen het "Meedoen"-scherm met de code al ingevuld. Geen account, geen download.</div>
       <div class="code-box">
         <div class="code-big" id="lobby-code-big">—</div>
         <div class="code-hint">Deel deze code met je groep</div>
       </div>
-      <button class="btn secondary" style="margin-bottom:20px;" onclick="copyInviteCode()">🔗 Kopieer code</button>
+      <button class="btn secondary" id="copy-invite-btn" style="margin-bottom:20px;" onclick="copyInviteCode()">🔗 Kopieer uitnodigingslink</button>
       <div class="section-title" style="font-size:17px;margin-bottom:12px;" id="lobby-player-count">Spelers (1/6)</div>
       <div class="player-list" id="lobby-player-list"></div>
       <button class="btn" onclick="goDossier()" style="margin-top:auto;">Mijn dossier invullen →</button>
@@ -176,7 +176,7 @@
       <div class="round-intro-accent">Quick Fire</div>
       <div class="round-intro-sub">Een antwoord flitst voorbij — raad zo snel mogelijk van wie het is. De hele groep ziet dezelfde vraag tegelijk.</div>
       <div class="rules">
-        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>5 seconden</strong> per antwoord, live voor iedereen</div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>10 seconden</strong> per antwoord, live voor iedereen</div></div>
         <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Hoe sneller je raadt, <strong>hoe meer punten</strong></div></div>
         <div class="rule-row"><div class="rule-icon">🎯</div><div class="rule-text">Iedereen speelt <strong>simultaan</strong> op zijn telefoon</div></div>
       </div>
@@ -529,10 +529,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=21"></script>
-<script src="backend.js?v=21"></script>
-<script src="spotify-config.js?v=21"></script>
-<script src="spotify.js?v=21"></script>
-<script src="script.js?v=21"></script>
+<script src="firebase-config.js?v=22"></script>
+<script src="backend.js?v=22"></script>
+<script src="spotify-config.js?v=22"></script>
+<script src="spotify.js?v=22"></script>
+<script src="script.js?v=22"></script>
 </body>
 </html>

@@ -10,12 +10,16 @@
 //  account — they just guess.
 // ─────────────────────────────────────────
 
-// Normalized so it's identical whether the page was opened as ".../" or
-// ".../index.html" — only one exact string needs to be registered as a
-// redirect URI in the Spotify dashboard.
-const SPOTIFY_REDIRECT_URI = window.location.origin + window.location.pathname.replace(/index\.html$/, '');
+// Normalized so it's identical no matter how the page was opened — with
+// or without a trailing slash, as ".../" or as ".../index.html" — since
+// Spotify requires an EXACT string match against what's registered in
+// the dashboard. Without this, sharing a link without the trailing
+// slash (easy to do by hand) would silently compute a different
+// redirect_uri and Spotify would reject the login with "Invalid redirect URI".
+const SPOTIFY_REDIRECT_URI = window.location.origin + window.location.pathname.replace(/index\.html$/, '').replace(/\/*$/, '/');
 const SPOTIFY_TOKEN_KEY = 'unmasked:spotify:token';
 const SPOTIFY_VERIFIER_KEY = 'unmasked:spotify:verifier';
+const SPOTIFY_AUTH_ERROR_KEY = 'unmasked:spotify:autherror';
 
 function spotifyConfigured() {
   return typeof SPOTIFY_CLIENT_ID !== 'undefined' && SPOTIFY_CLIENT_ID && SPOTIFY_CLIENT_ID.length > 10;
@@ -43,6 +47,7 @@ async function pkceChallenge(verifier) {
 const UNMASKED_RESUME_KEY = 'unmasked:resume';
 
 async function spotifyConnect() {
+  clearSpotifyAuthError();
   // window.location.href is a full page navigation away to Spotify's login —
   // everything in memory (which lobby we're in, who we are) would otherwise
   // be lost when the browser comes back. Persist it so script.js can restore
@@ -64,15 +69,26 @@ async function spotifyConnect() {
   window.location.href = 'https://accounts.spotify.com/authorize?' + params.toString();
 }
 
+// Bewaart de reden bij een mislukte verbinding — voorheen zag de host
+// enkel "niet verbonden", zonder enig aanknopingspunt waarom (bv. een
+// redirect-URI die niet exact overeenkomt met wat in het Spotify-
+// dashboard staat, of een account dat niet is toegevoegd als tester
+// zolang de app in "Development Mode" staat).
+function getSpotifyAuthError() { return sessionStorage.getItem(SPOTIFY_AUTH_ERROR_KEY); }
+function clearSpotifyAuthError() { sessionStorage.removeItem(SPOTIFY_AUTH_ERROR_KEY); }
+
 async function handleSpotifyRedirect() {
   const url = new URL(window.location.href);
   const code = url.searchParams.get('code');
-  if (!code) return;
+  const authError = url.searchParams.get('error');
+  if (!code && !authError) return;
   const verifier = sessionStorage.getItem(SPOTIFY_VERIFIER_KEY);
   url.searchParams.delete('code');
   url.searchParams.delete('state');
+  url.searchParams.delete('error');
   window.history.replaceState({}, '', url.toString());
-  if (!verifier) return;
+  if (authError) { sessionStorage.setItem(SPOTIFY_AUTH_ERROR_KEY, authError); return; }
+  if (!verifier) { sessionStorage.setItem(SPOTIFY_AUTH_ERROR_KEY, 'sessie verlopen (geen verifier gevonden) — probeer opnieuw'); return; }
   try {
     const res = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
@@ -89,8 +105,11 @@ async function handleSpotifyRedirect() {
         access_token: data.access_token, refresh_token: data.refresh_token,
         expires_at: Date.now() + (data.expires_in - 30) * 1000,
       }));
+      clearSpotifyAuthError();
+    } else {
+      sessionStorage.setItem(SPOTIFY_AUTH_ERROR_KEY, data.error_description || data.error || 'onbekende fout bij het ophalen van de toegangstoken');
     }
-  } catch (e) { /* connection surfaced as "not connected" to the UI */ }
+  } catch (e) { sessionStorage.setItem(SPOTIFY_AUTH_ERROR_KEY, 'netwerkfout: ' + e.message); }
 }
 
 async function spotifyRefreshToken(refresh_token) {

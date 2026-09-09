@@ -162,11 +162,14 @@ function pickSessionQuestions() {
       .filter(p => p.dossierAnswers && p.dossierAnswers[q] && p.dossierAnswers[q].trim())
       .map(p => ({ text: p.dossierAnswers[q], player: p.name }));
     return { label: q, answers: real };
-  }).filter(p => p.answers.length >= 2);
+  }).filter(p => p.answers.length >= 1);
   // Once there's a real group, never mix in demo names — only ask about
-  // questions enough real players actually answered, however many that is
-  // (up to ROUND1_QUESTION_COUNT — every player only saw a random subset
-  // of PARTY_QS, so not every question will have enough real answers).
+  // questions someone actually answered, however many that is (up to
+  // ROUND1_QUESTION_COUNT — every player only saw a random subset of
+  // PARTY_QS, so with a small group even 1 real answer per question is
+  // needed to reliably reach the full 10; the guess itself still works
+  // fine with just one known answer since guessers pick from the whole
+  // player roster, not from a set of alternative answers).
   const useReal = lobbyPlayers.length >= 2 && realPools.length > 0;
   const pools = useReal
     ? realPools
@@ -618,12 +621,17 @@ function tickQFCountdown() {
   }
 }
 
+// Render de eigen keuze meteen lokaal — niet pas nadat de schrijfactie
+// gelukt is. Zoniet lijkt een tik op een antwoord/stem simpelweg niets
+// te doen zodra die ene write faalt op een wankele mobiele verbinding
+// (bevestigd als echte oorzaak van "we konden niet aanduiden van wie
+// het verhaal was" in Ronde 5 — hetzelfde patroon geldt hier).
 async function submitQFGuess(name) {
   if (!latestLobby || !latestLobby.quickfire) return;
-  await GameOps.submitQFGuess(Session.code, Session.playerId, name);
   const qf = latestLobby.quickfire;
   const answers = { ...(qf.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
   renderQuickFire(updateLocalLobby({ quickfire: { ...qf, answers } }));
+  try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
 }
 
 async function hostRevealQF() {
@@ -675,7 +683,8 @@ function maskSvgHtml() {
 // questionStartAt-tijdstempel, zodat iedereen dezelfde foto op hetzelfde
 // tempo ziet uitzoomen, ongeacht wanneer elk toestel het snapshot ontving.
 
-const PHOTOROUND_SECONDS = 30;
+const PHOTOROUND_SECONDS = 20;
+const ROUND2_PHOTO_COUNT = 8;
 let photoRoundTicker = null;
 let lastRenderedPhotoIndex = -1;
 
@@ -689,10 +698,14 @@ function renderRound2Intro(lobby) {
 function pickRound2Photos() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const withPhotos = lobbyPlayers.filter(p => p.photo && p.photo.url);
-  if (withPhotos.length >= 3) {
+  // Zelfde drempel als Ronde 1: zodra er een echte groep is (2+ spelers
+  // met een foto), nooit testspelers erbij mengen. En net als Ronde 1
+  // hoeft niet IEDEREEN aan bod te komen — bij een grote groep zou dat
+  // de ronde nodeloos lang maken, dus een willekeurige subset volstaat.
+  if (lobbyPlayers.length >= 2 && withPhotos.length >= 2) {
     return {
       usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
-      photos: shuffle(withPhotos).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
+      photos: shuffle(withPhotos).slice(0, ROUND2_PHOTO_COUNT).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
     };
   }
   return { usePlayers: PLAYERS, photos: shuffle(R2_PHOTOS) };
@@ -811,10 +824,10 @@ function tickPhotoRound() {
 
 async function submitPhotoGuess(name) {
   if (!latestLobby || !latestLobby.photoRound) return;
-  await GameOps.submitPhotoGuess(Session.code, Session.playerId, name);
   const pr = latestLobby.photoRound;
   const answers = { ...(pr.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
   renderPhotoRound(updateLocalLobby({ photoRound: { ...pr, answers } }));
+  try { await withRetry(() => GameOps.submitPhotoGuess(Session.code, Session.playerId, name)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostRevealPhoto() {
@@ -956,8 +969,8 @@ async function castHotOrNotVote(vote) {
   if (!latestLobby || !latestLobby.hotornot) return;
   const hon = latestLobby.hotornot;
   const votes = { ...(hon.votes || {}), [Session.playerId]: vote };
-  await GameOps.voteHotOrNot(Session.code, hon.targetId, Session.playerId, vote);
   renderHotOrNot(updateLocalLobby({ hotornot: { ...hon, votes } }));
+  try { await withRetry(() => GameOps.voteHotOrNot(Session.code, hon.targetId, Session.playerId, vote)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function nextHotOrNot() {
@@ -1092,10 +1105,10 @@ function tickVerhoorCountdown() {
 
 async function submitMyVerhoorGuess(targetId) {
   if (!latestLobby || !latestLobby.verhoor) return;
-  await GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId);
   const v = latestLobby.verhoor;
   const answers = { ...(v.answers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
   renderVerhoor(updateLocalLobby({ verhoor: { ...v, answers } }));
+  try { await withRetry(() => GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostRevealVerhoor() {
@@ -1151,10 +1164,21 @@ function renderRound4Intro(lobby) {
 
   const spotifyOk = typeof spotifyConfigured === 'function' && spotifyConfigured();
   const connected = spotifyOk && spotifyIsConnected();
+  const authError = typeof getSpotifyAuthError === 'function' ? getSpotifyAuthError() : null;
   document.getElementById('r4intro-spotify-connect-btn').style.display = (Session.isHost && spotifyOk && !connected) ? 'block' : 'none';
-  document.getElementById('r4intro-spotify-status').textContent = !spotifyOk
-    ? ''
-    : (connected ? '✓ Verbonden met Spotify' : 'Nog niet verbonden — verbind om de nummers ook echt te horen (anders leest de host de titel voor).');
+  const statusEl = document.getElementById('r4intro-spotify-status');
+  if (!spotifyOk) {
+    statusEl.textContent = '';
+  } else if (connected) {
+    statusEl.textContent = '✓ Verbonden met Spotify';
+    statusEl.style.color = '';
+  } else if (authError) {
+    statusEl.textContent = '⚠️ Verbinden mislukt: ' + authError;
+    statusEl.style.color = 'var(--red)';
+  } else {
+    statusEl.textContent = 'Nog niet verbonden — verbind om de nummers ook echt te horen (anders leest de host de titel voor).';
+    statusEl.style.color = '';
+  }
   document.getElementById('r4intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r4intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
 }
@@ -1305,10 +1329,10 @@ function renderSoundtrack(lobby) {
 
 async function submitSoundtrackOwnerGuess(targetId) {
   if (!latestLobby || !latestLobby.soundtrack) return;
-  await GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId);
   const st = latestLobby.soundtrack;
   const ownerAnswers = { ...(st.ownerAnswers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
   renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, ownerAnswers } }));
+  try { await withRetry(() => GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostRevealSoundtrackOwner() {
@@ -1326,10 +1350,10 @@ async function hostRevealSoundtrackOwner() {
 
 async function submitSoundtrackDrinkGuess(drinkText) {
   if (!latestLobby || !latestLobby.soundtrack) return;
-  await GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText);
   const st = latestLobby.soundtrack;
   const drinkAnswers = { ...(st.drinkAnswers || {}), [Session.playerId]: drinkText };
   renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, drinkAnswers } }));
+  try { await withRetry(() => GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostNextSoundtrack() {
@@ -1673,11 +1697,11 @@ async function hostNextBiechtPlay() {
 
 async function castBiechtVote(targetId) {
   if (!latestLobby || !latestLobby.biecht) return;
-  await GameOps.voteBiecht(Session.code, targetId, Session.playerId);
   const b = latestLobby.biecht;
   const votes = { ...(b.votes || {}), [Session.playerId]: targetId };
   const updatedBiecht = { ...b, votes };
   renderBiechtVoting(updateLocalLobby({ biecht: updatedBiecht }), updatedBiecht);
+  try { await withRetry(() => GameOps.voteBiecht(Session.code, targetId, Session.playerId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function finishBiechtVoting() {

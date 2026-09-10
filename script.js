@@ -91,8 +91,11 @@ const PARTY_QS = [
 ];
 // Hoeveel vragen uit de bank één speler tijdens het dossier te zien krijgt.
 const PLAYER_PARTY_QUESTION_COUNT = 12;
-// Hoeveel vragen Ronde 1 (Quick Fire) uiteindelijk gebruikt.
-const ROUND1_QUESTION_COUNT = 10;
+// Minimum aantal spelers om te kunnen spelen — geen maximum, maar vanaf
+// meer dan ROUND_ITEM_CAP spelers tonen Ronde 1 t/m 5 maar een subset
+// (anders duurt een ronde met bv. 20 spelers veel te lang).
+const MIN_PLAYERS = 3;
+const ROUND_ITEM_CAP = 10;
 
 const CONFESSION_Q = 'Beken hier iets kleins (een leugentje, iets stiekems, een onschuldig grensgeval):';
 const SONG_Q = 'Mijn lievelingsnummer is (artiest - titel):';
@@ -181,6 +184,35 @@ async function withRetry(fn, attempts = 5, delayMs = 300) {
   throw lastErr;
 }
 
+// Verdeelt items zo eerlijk mogelijk over wie erin voorkomt (via
+// getKey), i.p.v. puur willekeurig te trekken — anders kan toeval
+// ervoor zorgen dat dezelfde speler(s) meerdere keren aan bod komen
+// terwijl anderen helemaal niet gekozen worden. Ronde-robin per
+// "eigenaar": iedereen krijgt er pas een tweede voordat wie dan ook een
+// derde krijgt, enzovoort, tot het gevraagde aantal bereikt is of alles
+// op is.
+function pickFairMix(items, count, getKey) {
+  const byOwner = {};
+  items.forEach(item => {
+    const key = getKey(item);
+    (byOwner[key] || (byOwner[key] = [])).push(item);
+  });
+  const buckets = shuffle(Object.values(byOwner)).map(b => shuffle(b));
+  const picked = [];
+  for (let round = 0; picked.length < count; round++) {
+    let addedAny = false;
+    for (const bucket of buckets) {
+      if (round < bucket.length) {
+        picked.push(bucket[round]);
+        addedAny = true;
+        if (picked.length >= count) break;
+      }
+    }
+    if (!addedAny) break; // alle buckets uitgeput, minder dan `count` beschikbaar
+  }
+  return picked;
+}
+
 function pickSessionQuestions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const realPlayersFormatted = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
@@ -192,11 +224,11 @@ function pickSessionQuestions() {
   }).filter(p => p.answers.length >= 1);
   // Once there's a real group, never mix in demo names — only ask about
   // questions someone actually answered, however many that is (up to
-  // ROUND1_QUESTION_COUNT — every player only saw a random subset of
-  // PARTY_QS, so with a small group even 1 real answer per question is
-  // needed to reliably reach the full 10; the guess itself still works
-  // fine with just one known answer since guessers pick from the whole
-  // player roster, not from a set of alternative answers).
+  // ROUND_ITEM_CAP — every player only saw a random subset of PARTY_QS,
+  // so with a small group even 1 real answer per question is needed to
+  // reliably reach the full cap; the guess itself still works fine with
+  // just one known answer since guessers pick from the whole player
+  // roster, not from a set of alternative answers).
   const useReal = lobbyPlayers.length >= 2 && realPools.length > 0;
   const pools = useReal
     ? realPools
@@ -204,10 +236,13 @@ function pickSessionQuestions() {
   const usePlayers = useReal ? realPlayersFormatted : PLAYERS;
   // Resolve one specific answer per question now, once, so every player's
   // screen shows the exact same quote — not a per-client random pick.
-  const questions = shuffle(pools).slice(0, ROUND1_QUESTION_COUNT).map(p => {
+  const resolved = pools.map(p => {
     const chosen = p.answers[Math.floor(Math.random() * p.answers.length)];
     return { label: p.label, answerText: chosen.text, correctPlayer: chosen.player };
   });
+  // Eerlijke mix: pas als elke speler minstens 1 vraag heeft, mag iemand
+  // een 2e krijgen — anders kan toeval dezelfde persoon telkens featuren.
+  const questions = pickFairMix(resolved, ROUND_ITEM_CAP, (item) => item.correctPlayer);
   return { questions: shuffle(questions), usePlayers };
 }
 
@@ -287,6 +322,7 @@ async function createLobbyClick() {
   const errEl = document.getElementById('create-error');
   errEl.style.display = 'none';
   if (!name) { errEl.textContent = 'Vul je naam in.'; errEl.style.display = 'block'; return; }
+  if (maxPlayers < MIN_PLAYERS) { errEl.textContent = `Minimum ${MIN_PLAYERS} spelers.`; errEl.style.display = 'block'; return; }
   try {
     const { code, playerId } = await Backend.createLobby(name, maxPlayers);
     Session.code = code; Session.playerId = playerId; Session.isHost = true;
@@ -374,8 +410,12 @@ function renderWaitingScreen(lobby) {
   document.getElementById('waiting-donecount').textContent = `Klaar (${done.length}/${lobby.players.length})`;
   document.getElementById('waiting-donelist').textContent = done.map(p => p.name).join(', ') || '—';
 
-  const allDone = lobby.players.length > 0 && notDone.length === 0;
+  const enoughPlayers = lobby.players.length >= MIN_PLAYERS;
+  const allDone = enoughPlayers && notDone.length === 0;
   document.getElementById('waiting-start-btn').style.display = Session.isHost && allDone ? 'block' : 'none';
+  const minPlayersMsg = document.getElementById('waiting-min-players-msg');
+  minPlayersMsg.style.display = (Session.isHost && !enoughPlayers) ? 'block' : 'none';
+  minPlayersMsg.textContent = `Nog minstens ${MIN_PLAYERS - lobby.players.length} speler(s) nodig om te starten (minimum ${MIN_PLAYERS}).`;
   document.getElementById('waiting-nothost-msg').style.display = Session.isHost ? 'none' : 'block';
 }
 
@@ -729,7 +769,6 @@ function maskSvgHtml() {
 // tempo ziet uitzoomen, ongeacht wanneer elk toestel het snapshot ontving.
 
 const PHOTOROUND_SECONDS = 20;
-const ROUND2_PHOTO_COUNT = 8;
 let photoRoundTicker = null;
 let lastRenderedPhotoIndex = -1;
 let lastFlashedPhotoIndex = -1;
@@ -752,7 +791,7 @@ function pickRound2Photos() {
   if (lobbyPlayers.length >= 2 && withPhotos.length >= 2) {
     return {
       usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
-      photos: shuffle(withPhotos).slice(0, ROUND2_PHOTO_COUNT).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
+      photos: shuffle(withPhotos).slice(0, ROUND_ITEM_CAP).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
     };
   }
   return { usePlayers: PLAYERS, photos: shuffle(R2_PHOTOS) };
@@ -970,7 +1009,7 @@ function showScoreR2() {
 
 function pickHotOrNotOrder() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  return lobbyPlayers.filter(p => p.photo && p.photo.url).map(p => p.id);
+  return shuffle(lobbyPlayers.filter(p => p.photo && p.photo.url).map(p => p.id)).slice(0, ROUND_ITEM_CAP);
 }
 
 async function hostStartHotOrNot() {
@@ -1073,7 +1112,7 @@ function pickRound3Confessions() {
     .map(p => ({ text: `"${p.dossierAnswers[CONFESSION_Q].trim()}"`, playerId: p.id, playerName: p.name }));
   if (real.length >= 2) {
     return {
-      list: shuffle(real).slice(0, Math.min(5, real.length)),
+      list: shuffle(real).slice(0, Math.min(ROUND_ITEM_CAP, real.length)),
       players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
     };
   }
@@ -1270,10 +1309,12 @@ async function hostStartRound4() {
 // Elke speler die een lievelingsnummer invulde, hoort in de ronde thuis —
 // ook als Spotify de exacte titel niet kan vinden (trackId blijft dan
 // null en renderSoundtrack toont gewoon de getypte tekst in plaats van
-// een fragment af te spelen).
+// een fragment af te spelen). Bij een grote groep wordt vooraf al
+// afgekapt tot ROUND_ITEM_CAP, zodat we ook geen Spotify-opzoekingen
+// verspillen aan nummers die toch niet gebruikt worden.
 async function pickSoundtrack() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const withSongs = lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim());
+  const withSongs = shuffle(lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim())).slice(0, ROUND_ITEM_CAP);
   if (withSongs.length === 0) return null;
   const canSearchSpotify = typeof spotifyConfigured === 'function' && spotifyConfigured() && spotifyIsConnected();
   const list = [];
@@ -1679,7 +1720,7 @@ function renderRound5Intro(lobby) {
 }
 
 async function hostStartBiechtPlayback() {
-  const order = latestLobby.players.filter(p => p.voiceReady).map(p => p.id);
+  const order = shuffle(latestLobby.players.filter(p => p.voiceReady).map(p => p.id)).slice(0, ROUND_ITEM_CAP);
   if (order.length === 0) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round5-final'));
     showFinal();

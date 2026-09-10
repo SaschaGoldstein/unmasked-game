@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=26" />
+  <link rel="stylesheet" href="style.css?v=27" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -40,7 +40,7 @@
       <label>Jouw naam</label>
       <input type="text" placeholder="bijv. Sander" id="create-name" />
       <label>Aantal spelers</label>
-      <input type="number" min="2" max="12" value="6" id="create-maxplayers" />
+      <input type="number" min="3" value="6" id="create-maxplayers" />
       <div class="label-sm" id="create-error" style="color:var(--red);display:none;margin-top:8px;"></div>
       <button class="btn amber" style="margin-top:28px;" onclick="createLobbyClick()">Lobby aanmaken →</button>
     </div>
@@ -169,6 +169,7 @@
       <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="waiting-donecount">Klaar (0/0)</div><div class="card-sub" id="waiting-donelist"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" id="waiting-start-btn" style="display:none;" onclick="hostStartGame()">Host: Spel starten →</button>
+        <div class="label-sm" id="waiting-min-players-msg" style="display:none;color:var(--red);"></div>
         <div class="label-sm" id="waiting-nothost-msg">Wacht tot de host het spel start...</div>
       </div>
     </div>
@@ -504,10 +505,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=26"></script>
-<script src="backend.js?v=26"></script>
-<script src="spotify-config.js?v=26"></script>
-<script src="spotify.js?v=26"></script>
-<script src="script.js?v=26"></script>
+<script src="firebase-config.js?v=27"></script>
+<script src="backend.js?v=27"></script>
+<script src="spotify-config.js?v=27"></script>
+<script src="spotify.js?v=27"></script>
+<script src="script.js?v=27"></script>
 </body>
 </html>

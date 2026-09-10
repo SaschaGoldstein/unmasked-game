@@ -283,11 +283,14 @@ async function revealQuickfire(code, index, secondsAllowed) {
     if (!qf || qf.index !== index || qf.revealed) return;
     const q = qf.questions[qf.index];
     for (const [voterId, a] of Object.entries(qf.answers || {})) {
+      const voter = findPlayer(lobby, voterId);
+      // Je kan geen punten krijgen op je eigen antwoord — dat zou je
+      // altijd al weten, dus geen echte gok.
+      if (voter && voter.name === q.correctPlayer) continue;
       if (a.guess === q.correctPlayer) {
         const remaining = Math.max(0, secondsAllowed - (a.at - qf.questionStartAt) / 1000);
         const pts = Math.max(1, Math.round(remaining) + 1);
-        const p = findPlayer(lobby, voterId);
-        if (p) p.score = (p.score || 0) + pts;
+        if (voter) voter.score = (voter.score || 0) + pts;
       }
     }
     qf.revealed = true;
@@ -315,11 +318,13 @@ async function revealPhotoRound(code, index, secondsAllowed) {
     if (!pr || pr.index !== index || pr.revealed) return;
     const photo = pr.photos[pr.index];
     for (const [voterId, a] of Object.entries(pr.answers || {})) {
+      const voter = findPlayer(lobby, voterId);
+      // Je kan geen punten krijgen door je eigen foto te "raden".
+      if (voter && voter.name === photo.player) continue;
       if (a.guess === photo.player) {
         const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
         const pts = Math.max(1, Math.round((1 - elapsedAtGuess / secondsAllowed) * 8) + 2);
-        const p = findPlayer(lobby, voterId);
-        if (p) p.score = (p.score || 0) + pts;
+        if (voter) voter.score = (voter.score || 0) + pts;
       }
     }
     pr.revealed = true;
@@ -362,6 +367,8 @@ async function revealVerhoor(code, index, secondsAllowed) {
     const answers = v.answers || {};
     let caught = false;
     for (const [voterId, a] of Object.entries(answers)) {
+      // Je kan jezelf niet "ontmaskeren" — dat telt niet als gok.
+      if (voterId === q.playerId) continue;
       if (a.guess === q.playerId) {
         caught = true;
         const remaining = Math.max(0, secondsAllowed - (a.at - v.questionStartAt) / 1000);

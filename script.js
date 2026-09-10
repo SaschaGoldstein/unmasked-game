@@ -549,11 +549,11 @@ function renderQuickFire(lobby) {
     clearInterval(qfCountdownTimer);
     qfCountdownTimer = setInterval(() => tickQFCountdown(), 200);
     tickQFCountdown();
-  } else {
-    debugQF('render-same-idx');
   }
 
   const myGuess = (qf.answers || {})[Session.playerId];
+  const me = lobby.players && lobby.players.find(p => p.id === Session.playerId);
+  const isMyOwnAnswer = !!me && me.name === q.correctPlayer;
   const wrap = document.getElementById('r1-answers');
   wrap.innerHTML = '';
   qf.usePlayers.forEach(p => {
@@ -566,7 +566,8 @@ function renderQuickFire(lobby) {
       d.classList.add('pending');
     }
     d.innerHTML = `<div class="answer-text">${p.name}</div>`;
-    if (!myGuess && !qf.revealed) d.onclick = () => submitQFGuess(p.name);
+    // Je eigen antwoord raad je niet mee — dat zou je toch altijd weten.
+    if (!myGuess && !qf.revealed && !isMyOwnAnswer) d.onclick = () => submitQFGuess(p.name);
     wrap.appendChild(d);
   });
 
@@ -587,27 +588,13 @@ function renderQuickFire(lobby) {
 
 let qfRevealInFlight = false;
 
-// Tijdelijk zichtbaar debug-regeltje onder de timer — geen speler zal
-// hier iets van snappen, maar het laat ons bij een volgende vastloper
-// exact aflezen wat de interne staat op dat moment is (i.p.v. te moeten
-// gokken), zonder dat iemand devtools moet openen op hun telefoon.
-function debugQF(label) {
-  const el = document.getElementById('r1-debug');
-  if (!el) return;
-  const qf = latestLobby && latestLobby.quickfire;
-  if (!qf) { el.textContent = `[${label}] geen quickfire-data`; return; }
-  const elapsed = ((Date.now() - qf.questionStartAt) / 1000).toFixed(1);
-  el.textContent = `[${label}] idx=${qf.index} revealed=${qf.revealed} elapsed=${elapsed}s lastRendered=${lastRenderedQFIndex} timerId=${qfCountdownTimer} host=${Session.isHost}`;
-}
-
 function tickQFCountdown() {
   const qf = latestLobby && latestLobby.quickfire;
-  if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); debugQF('tick-stop'); return; }
+  if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); return; }
   const elapsed = (Date.now() - qf.questionStartAt) / 1000;
   const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
   document.getElementById('timer-num').textContent = Math.ceil(remaining);
   document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
-  debugQF('tick');
   // Elke speler probeert dit, niet enkel de host: een tabblad op de
   // achtergrond (scherm op slot, andere app) kan door de browser worden
   // vertraagd of gepauzeerd, en als alleen de host dit mocht triggeren
@@ -653,7 +640,6 @@ async function hostNextQF() {
   qfNextInFlight = true;
   try {
     const qf = latestLobby.quickfire;
-    debugQF('next-start');
     const nextIndex = qf.index + 1;
     if (nextIndex >= qf.questions.length) {
       await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-score'));
@@ -663,7 +649,6 @@ async function hostNextQF() {
     const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
     await withRetry(() => GameOps.setQuickfire(Session.code, next));
     renderQuickFire(updateLocalLobby({ quickfire: next }));
-    debugQF('next-done');
   } finally {
     qfNextInFlight = false;
   }
@@ -754,6 +739,8 @@ function renderPhotoRound(lobby) {
   }
 
   const myGuess = (pr.answers || {})[Session.playerId];
+  const me = lobby.players && lobby.players.find(p => p.id === Session.playerId);
+  const isMyOwnPhoto = !!me && me.name === photo.player;
   const wrap = document.getElementById('r2-players');
   wrap.innerHTML = '';
   pr.usePlayers.forEach(p => {
@@ -766,7 +753,8 @@ function renderPhotoRound(lobby) {
       d.classList.add('pending');
     }
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    if (!myGuess && !pr.revealed) d.onclick = () => submitPhotoGuess(p.name);
+    // Je eigen foto raad je niet mee — dat zou je toch altijd weten.
+    if (!myGuess && !pr.revealed && !isMyOwnPhoto) d.onclick = () => submitPhotoGuess(p.name);
     wrap.appendChild(d);
   });
 
@@ -777,14 +765,25 @@ function renderPhotoRound(lobby) {
     photoEl.style.transform = 'scale(1)';
     document.getElementById('r2-zoombar').style.width = '100%';
     document.getElementById('r2-zoom-hint').textContent = photo.player + ' was het!';
-    const correctVoters = Object.entries(pr.answers || {}).filter(([, a]) => a.guess === photo.player)
-      .map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
+    // Zelfde puntenformule als revealPhotoRound in backend.js, enkel om
+    // hier per speler te tonen wat ze verdienden — hoe sneller juist
+    // geraden, hoe meer punten, en dat mag ook zichtbaar zijn.
+    const correctVoters = Object.entries(pr.answers || {})
+      .map(([voterId, a]) => ({ voter: lobby.players.find(p => p.id === voterId), a }))
+      .filter(({ voter, a }) => voter && voter.name !== photo.player && a.guess === photo.player)
+      .map(({ voter, a }) => {
+        const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
+        const pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
+        return { name: voter.name, pts };
+      })
+      .sort((x, y) => y.pts - x.pts);
     const flash = document.getElementById('r2-pts-flash');
     const fb = document.getElementById('r2-feedback');
     if (correctVoters.length) {
+      const myEntry = me && correctVoters.find(v => v.name === me.name);
       flash.style.color = 'var(--accent2)';
-      flash.textContent = 'Juist geraden!';
-      fb.innerHTML = `<span style="color:var(--green);">✓ ${correctVoters.map(p => p.name).join(', ')} had het goed</span>`;
+      flash.textContent = myEntry ? `+${myEntry.pts} punten!` : 'Juist geraden!';
+      fb.innerHTML = `<span style="color:var(--green);">✓ ${correctVoters.map(v => `${v.name} (+${v.pts})`).join(', ')}</span>`;
     } else {
       flash.style.color = '#e24b4a';
       flash.textContent = '0 punten';
@@ -992,7 +991,7 @@ async function nextHotOrNot() {
 // door alle clients reactief gerenderd. De host is ook de enige die
 // scores toekent (tijdens de reveal) om dubbel tellen te vermijden.
 
-const VERHOOR_SECONDS = 30;
+const VERHOOR_SECONDS = 20;
 let verhoorCountdownTimer = null;
 let lastSpokenVerhoorIndex = -1;
 
@@ -1023,7 +1022,7 @@ function speakConfession(text) {
 
 async function hostStartVerhoor() {
   const picked = pickRound3Confessions();
-  const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
+  const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setVerhoor(Session.code, verhoor));
   await withRetry(() => GameOps.setPhase(Session.code, 'verhoor-active'));
   go('s-round3-q');
@@ -1050,6 +1049,7 @@ function renderVerhoor(lobby) {
   }
 
   const myGuess = (v.answers || {})[Session.playerId];
+  const isMyOwnConfession = q.playerId === Session.playerId;
   const wrap = document.getElementById('r3-answers');
   wrap.innerHTML = '';
   v.players.forEach(p => {
@@ -1062,7 +1062,8 @@ function renderVerhoor(lobby) {
       d.classList.add('pending');
     }
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    if (!myGuess && !v.revealed) d.onclick = () => submitMyVerhoorGuess(p.id);
+    // Je eigen bekentenis raad je niet mee — dat zou je toch altijd weten.
+    if (!myGuess && !v.revealed && !isMyOwnConfession) d.onclick = () => submitMyVerhoorGuess(p.id);
     wrap.appendChild(d);
   });
 
@@ -1071,13 +1072,11 @@ function renderVerhoor(lobby) {
   if (v.revealed) {
     clearInterval(verhoorCountdownTimer);
     const confessor = v.players.find(p => p.id === q.playerId);
-    const correctVoters = Object.entries(v.answers || {}).filter(([, a]) => a.guess === q.playerId).map(([voterId]) => v.players.find(p => p.id === voterId)).filter(Boolean);
+    const correctVoters = Object.entries(v.answers || {}).filter(([voterId, a]) => voterId !== q.playerId && a.guess === q.playerId).map(([voterId]) => v.players.find(p => p.id === voterId)).filter(Boolean);
     const caught = correctVoters.length > 0;
     document.getElementById('r3-reveal-card').innerHTML = `
       <div class="card-title">Het was ${confessor ? confessor.name : '?'}!</div>
       <div class="card-sub">${caught ? `Ontmaskerd door: ${correctVoters.map(p => p.name).join(', ')} (${confessor ? confessor.name : ''} verliest punten)` : 'Niemand raadde het op tijd — geen puntenverlies.'}</div>`;
-    const bonusBtn = document.getElementById('r3-bonus-btn');
-    bonusBtn.style.display = Session.isHost && !v.bonusGiven ? 'block' : 'none';
     const nextBtn = document.getElementById('r3-next-btn');
     nextBtn.style.display = Session.isHost ? 'block' : 'none';
     nextBtn.textContent = v.index === v.list.length - 1 ? 'Bekijk scorebord →' : 'Volgende bekentenis →';
@@ -1118,15 +1117,6 @@ async function hostRevealVerhoor() {
   renderVerhoor(updateLocalLobby({ verhoor: { ...v, revealed: true } }));
 }
 
-async function awardVerhoorBonus() {
-  const v = latestLobby.verhoor;
-  if (!v || v.bonusGiven) return;
-  const q = v.list[v.index];
-  try { await GameOps.addScore(Session.code, q.playerId, 2); } catch (e) { /* one failed score-add shouldn't block the round */ }
-  await withRetry(() => GameOps.setVerhoor(Session.code, { ...v, bonusGiven: true }));
-  renderVerhoor(updateLocalLobby({ verhoor: { ...v, bonusGiven: true } }));
-}
-
 async function hostNextVerhoor() {
   const v = latestLobby.verhoor;
   const nextIndex = v.index + 1;
@@ -1135,7 +1125,7 @@ async function hostNextVerhoor() {
     showScoreR3();
     return;
   }
-  const next = { ...v, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false, bonusGiven: false };
+  const next = { ...v, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setVerhoor(Session.code, next));
   renderVerhoor(updateLocalLobby({ verhoor: next }));
 }
@@ -1277,6 +1267,7 @@ function renderSoundtrack(lobby) {
   playBtn.textContent = alreadyPlayed ? '▶ Opnieuw afspelen' : '▶ Speel fragment af';
 
   const myOwnerGuess = (st.ownerAnswers || {})[Session.playerId];
+  const isMyOwnSong = Session.playerId === track.playerId;
   const ownerWrap = document.getElementById('st-owner-players');
   document.getElementById('st-stage-label').style.display = st.stage === 'guessing' ? 'block' : 'none';
   ownerWrap.style.display = st.stage === 'guessing' ? 'grid' : 'none';
@@ -1287,7 +1278,8 @@ function renderSoundtrack(lobby) {
       d.className = 'player-btn';
       if (myOwnerGuess && myOwnerGuess.guess === p.id) d.classList.add('pending');
       d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-      if (!myOwnerGuess) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
+      // Je eigen nummer raad je niet mee — dat zou je toch altijd weten.
+      if (!myOwnerGuess && !isMyOwnSong) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
       ownerWrap.appendChild(d);
     });
   }
@@ -1304,7 +1296,8 @@ function renderSoundtrack(lobby) {
       d.className = 'player-btn';
       if (myDrinkGuess === opt) d.classList.add('pending');
       d.innerHTML = `<div class="pb-name" style="text-align:center;padding:4px 0;">${opt}</div>`;
-      if (!myDrinkGuess) d.onclick = () => submitSoundtrackDrinkGuess(opt);
+      // Je eigen drankje raad je niet mee — dat zou je toch altijd weten.
+      if (!myDrinkGuess && !isMyOwnSong) d.onclick = () => submitSoundtrackDrinkGuess(opt);
       drinkWrap.appendChild(d);
     });
   }
@@ -1339,7 +1332,8 @@ async function hostRevealSoundtrackOwner() {
   const st = latestLobby.soundtrack;
   const track = st.list[st.index];
   const correctGuessers = Object.entries(st.ownerAnswers || {})
-    .filter(([, a]) => a.guess === track.playerId)
+    // Je kan geen punten krijgen door je eigen nummer te "raden".
+    .filter(([voterId, a]) => voterId !== track.playerId && a.guess === track.playerId)
     .sort((a, b) => a[1].at - b[1].at);
   if (correctGuessers.length) { try { await GameOps.addScore(Session.code, correctGuessers[0][0], 5); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
   const drinkOptions = buildDrinkOptions(st.list, st.index);
@@ -1361,7 +1355,8 @@ async function hostNextSoundtrack() {
   const track = st.list[st.index];
   const correctDrink = (track.drink || '').trim();
   if (correctDrink) {
-    const winners = Object.entries(st.drinkAnswers || {}).filter(([, d]) => d === correctDrink).map(([id]) => id);
+    // Je kan geen punten krijgen door je eigen drankje te "raden".
+    const winners = Object.entries(st.drinkAnswers || {}).filter(([id, d]) => id !== track.playerId && d === correctDrink).map(([id]) => id);
     for (const id of winners) { try { await GameOps.addScore(Session.code, id, 2); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
   }
   if (typeof stopSpotifyPlayback === 'function') stopSpotifyPlayback();

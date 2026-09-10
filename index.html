@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=24" />
+  <link rel="stylesheet" href="style.css?v=25" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -203,7 +203,6 @@
         </svg>
         <div class="timer-num" id="timer-num">5</div>
       </div>
-      <div class="label-sm" id="r1-debug" style="opacity:0.5;font-family:monospace;font-size:11px;text-align:center;"></div>
       <div id="r1-answers"></div>
       <div id="r1-reveal" style="display:none;width:100%;">
         <div class="card" id="r1-reveal-card"></div>
@@ -315,10 +314,10 @@
       <span class="round-intro-icon">🕵️</span>
       <div class="round-intro-title">Ronde 3</div>
       <div class="round-intro-accent">Verhoor</div>
-      <div class="round-intro-sub">Een anonieme bekentenis wordt voorgelezen. De hele groep krijgt 30 seconden om de dader aan te wijzen — live, tegelijk.</div>
+      <div class="round-intro-sub">Een anonieme bekentenis wordt voorgelezen. De hele groep krijgt 20 seconden om de dader aan te wijzen — live, tegelijk.</div>
       <div class="rules">
         <div class="rule-row"><div class="rule-icon">🤐</div><div class="rule-text">Een <strong>bekentenis</strong> wordt voorgelezen, anoniem</div></div>
-        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>30 seconden</strong>, live voor iedereen zichtbaar</div></div>
+        <div class="rule-row"><div class="rule-icon">⏱️</div><div class="rule-text"><strong>20 seconden</strong>, live voor iedereen zichtbaar</div></div>
         <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Sneller raden = <strong>meer punten</strong> · de dader die ontmaskerd wordt <strong>verliest punten</strong></div></div>
       </div>
       <button class="btn amber" id="r3intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartVerhoor()">Start het verhoor →</button>
@@ -344,12 +343,11 @@
           <circle cx="36" cy="36" r="30" fill="none" stroke="#2e2d45" stroke-width="6"/>
           <circle id="r3-timer-arc" cx="36" cy="36" r="30" fill="none" stroke="#ff3d6b" stroke-width="6" stroke-dasharray="188.5" stroke-dashoffset="0" stroke-linecap="round"/>
         </svg>
-        <div class="timer-num" id="r3-timer-num">30</div>
+        <div class="timer-num" id="r3-timer-num">20</div>
       </div>
       <div class="accuse-list" id="r3-answers"></div>
       <div id="r3-reveal" style="display:none;width:100%;">
         <div class="card" id="r3-reveal-card"></div>
-        <button class="btn secondary" id="r3-bonus-btn" style="display:none;" onclick="awardVerhoorBonus()">+2 bonus voor beste toelichting</button>
         <button class="btn amber" id="r3-next-btn" style="display:none;" onclick="hostNextVerhoor()">Volgende bekentenis →</button>
         <div class="label-sm" id="r3-wait-reveal-msg" style="display:none;">Wachten op de host...</div>
       </div>
@@ -500,10 +498,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=24"></script>
-<script src="backend.js?v=24"></script>
-<script src="spotify-config.js?v=24"></script>
-<script src="spotify.js?v=24"></script>
-<script src="script.js?v=24"></script>
+<script src="firebase-config.js?v=25"></script>
+<script src="backend.js?v=25"></script>
+<script src="spotify-config.js?v=25"></script>
+<script src="spotify.js?v=25"></script>
+<script src="script.js?v=25"></script>
 </body>
 </html>

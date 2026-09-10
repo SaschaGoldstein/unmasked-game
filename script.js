@@ -213,6 +213,21 @@ function pickFairMix(items, count, getKey) {
   return picked;
 }
 
+// Bij meer dan MAX_ANSWER_OPTIONS spelers wordt kiezen binnen de tijd
+// onbegonnen werk — toon dan een willekeurige subset van kandidaten
+// (altijd inclusief het juiste antwoord, anders zou raden onmogelijk
+// zijn) i.p.v. de volledige spelerslijst. Dit is puur een lokale,
+// per-scherm weergavekeuze (elke speler mag gerust andere afleiders
+// zien) en heeft geen invloed op wie er score krijgt.
+const MAX_ANSWER_OPTIONS = 8;
+
+function pickAnswerOptions(allCandidates, correctValue, getValue) {
+  if (allCandidates.length <= MAX_ANSWER_OPTIONS) return allCandidates;
+  const correct = allCandidates.find(c => getValue(c) === correctValue);
+  const others = shuffle(allCandidates.filter(c => getValue(c) !== correctValue)).slice(0, MAX_ANSWER_OPTIONS - 1);
+  return shuffle(correct ? [correct, ...others] : others);
+}
+
 function pickSessionQuestions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const realPlayersFormatted = lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter }));
@@ -608,6 +623,7 @@ let qfCountdownTimer = null;
 let lastRenderedQFIndex = -1;
 let lastFlashedQFIndex = -1;
 let qfNextBtnReady = {};
+let qfOptionsCache = [];
 
 function renderRound1Intro(lobby) {
   const introScreen = document.getElementById('s-round1-intro');
@@ -640,6 +656,9 @@ function renderQuickFire(lobby) {
     clearInterval(qfCountdownTimer);
     qfCountdownTimer = setInterval(() => tickQFCountdown(), 200);
     tickQFCountdown();
+    // Eenmalig per vraag bepalen, anders zouden de knoppen door elkaar
+    // schudden bij elke her-render (bv. bij elke gok van iemand anders).
+    qfOptionsCache = pickAnswerOptions(qf.usePlayers, q.correctPlayer, (p) => p.name);
   }
 
   const myGuess = (qf.answers || {})[Session.playerId];
@@ -647,7 +666,7 @@ function renderQuickFire(lobby) {
   const isMyOwnAnswer = !!me && me.name === q.correctPlayer;
   const wrap = document.getElementById('r1-answers');
   wrap.innerHTML = '';
-  qf.usePlayers.forEach(p => {
+  qfOptionsCache.forEach(p => {
     const d = document.createElement('div');
     d.className = 'answer-card';
     if (qf.revealed) {
@@ -773,6 +792,7 @@ let photoRoundTicker = null;
 let lastRenderedPhotoIndex = -1;
 let lastFlashedPhotoIndex = -1;
 let photoNextBtnReady = {};
+let photoOptionsCache = [];
 
 function renderRound2Intro(lobby) {
   const introScreen = document.getElementById('s-round2-intro');
@@ -837,6 +857,9 @@ function renderPhotoRound(lobby) {
     clearInterval(photoRoundTicker);
     photoRoundTicker = setInterval(() => tickPhotoRound(), 100);
     tickPhotoRound();
+    // Eenmalig per foto bepalen, anders schudden de knoppen door elkaar
+    // bij elke her-render.
+    photoOptionsCache = pickAnswerOptions(pr.usePlayers, photo.player, (p) => p.name);
   }
 
   const myGuess = (pr.answers || {})[Session.playerId];
@@ -844,7 +867,7 @@ function renderPhotoRound(lobby) {
   const isMyOwnPhoto = !!me && me.name === photo.player;
   const wrap = document.getElementById('r2-players');
   wrap.innerHTML = '';
-  pr.usePlayers.forEach(p => {
+  photoOptionsCache.forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
     if (pr.revealed) {
@@ -1104,6 +1127,7 @@ let verhoorCountdownTimer = null;
 let lastSpokenVerhoorIndex = -1;
 let lastFlashedVerhoorIndex = -1;
 let verhoorNextBtnReady = {};
+let verhoorOptionsCache = [];
 
 function pickRound3Confessions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
@@ -1156,13 +1180,16 @@ function renderVerhoor(lobby) {
     clearInterval(verhoorCountdownTimer);
     verhoorCountdownTimer = setInterval(() => tickVerhoorCountdown(), 200);
     tickVerhoorCountdown();
+    // Eenmalig per bekentenis bepalen, anders schudden de knoppen door
+    // elkaar bij elke her-render.
+    verhoorOptionsCache = pickAnswerOptions(v.players, q.playerId, (p) => p.id);
   }
 
   const myGuess = (v.answers || {})[Session.playerId];
   const isMyOwnConfession = q.playerId === Session.playerId;
   const wrap = document.getElementById('r3-answers');
   wrap.innerHTML = '';
-  v.players.forEach(p => {
+  verhoorOptionsCache.forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
     if (v.revealed) {
@@ -1344,6 +1371,7 @@ function showScoreR4() {
 
 let lastRenderedSoundtrackIndex = -1;
 let soundtrackPlayedForIndex = -1;
+let soundtrackOptionsCache = [];
 
 function buildDrinkOptions(list, index) {
   const correct = list[index];
@@ -1376,6 +1404,9 @@ function renderSoundtrack(lobby) {
     // tap needed. The button stays available as a fallback in case the
     // browser blocks autoplay, or someone wants to replay the fragment.
     if (Session.isHost && st.stage === 'guessing' && track.trackId) hostPlaySoundtrack();
+    // Eenmalig per nummer bepalen, anders schudden de knoppen door elkaar
+    // bij elke her-render.
+    soundtrackOptionsCache = pickAnswerOptions(st.players, track.playerId, (p) => p.id);
   }
   document.getElementById('st-qnum').textContent = `Nummer ${st.index + 1} van ${st.list.length}`;
   document.getElementById('st-progress').style.width = Math.round(((st.index + 1) / st.list.length) * 100) + '%';
@@ -1393,7 +1424,7 @@ function renderSoundtrack(lobby) {
   ownerWrap.style.display = st.stage === 'guessing' ? 'grid' : 'none';
   if (st.stage === 'guessing') {
     ownerWrap.innerHTML = '';
-    st.players.forEach((p) => {
+    soundtrackOptionsCache.forEach((p) => {
       const d = document.createElement('div');
       d.className = 'player-btn';
       if (myOwnerGuess && myOwnerGuess.guess === p.id) d.classList.add('pending');

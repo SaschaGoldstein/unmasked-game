@@ -137,10 +137,37 @@ function go(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(screenId).classList.add('active');
   window.scrollTo(0, 0);
+  const leaveBtn = document.getElementById('leave-game-btn');
+  if (leaveBtn) leaveBtn.style.display = (screenId === 's-home') ? 'none' : 'flex';
+}
+
+// Ontsnappingsluik voor als er ergens iets vastloopt — zonder dit moest
+// je de hele URL opnieuw laden om terug bij af te geraken.
+function leaveGame() {
+  if (!window.confirm('Spel verlaten en teruggaan naar het startscherm?')) return;
+  if (Session.unsub) { try { Session.unsub(); } catch (e) { /* ignore */ } }
+  Session.code = null; Session.playerId = null; Session.isHost = false; Session.unsub = null;
+  latestLobby = null;
+  go('s-home');
 }
 
 function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+// Merkbare feedback op het moment dat de tijd om is — een korte rode
+// flits op de timer-ring plus een trilling op toestellen die dat
+// ondersteunen (niet overal, bv. niet op iOS Safari — vandaar de
+// feature-check, het faalt dan gewoon stil).
+function flashTimerZero(ringId) {
+  const ring = document.getElementById(ringId);
+  if (ring) {
+    ring.classList.remove('flash');
+    void ring.offsetWidth; // forceer reflow zodat de animatie ook opnieuw start bij snel achter elkaar triggeren
+    ring.classList.add('flash');
+    setTimeout(() => ring.classList.remove('flash'), 650);
+  }
+  if (navigator.vibrate) { try { navigator.vibrate(200); } catch (e) { /* niet overal ondersteund */ } }
+}
 
 // Herhaal een cruciale Firestore-schrijfactie (bv. "volgende vraag") een
 // paar keer bij een falende write — op een wankele mobiele verbinding kan
@@ -289,18 +316,39 @@ async function joinLobbyClick() {
   }
 }
 
-function copyInviteCode() {
-  if (!Session.code) return;
+function buildInviteUrl() {
+  if (!Session.code) return null;
   const url = new URL(window.location.href);
   url.search = '';
   url.searchParams.set('join', Session.code);
-  navigator.clipboard?.writeText(url.toString()).catch(() => {});
+  return url.toString();
+}
+
+function copyInviteCode() {
+  const url = buildInviteUrl();
+  if (!url) return;
+  navigator.clipboard?.writeText(url).catch(() => {});
   const btn = document.getElementById('copy-invite-btn');
   if (btn) {
     const original = btn.textContent;
     btn.textContent = '✓ Gekopieerd!';
     setTimeout(() => { btn.textContent = original; }, 1500);
   }
+}
+
+function shareInviteWhatsApp() {
+  const url = buildInviteUrl();
+  if (!url) return;
+  const text = encodeURIComponent(`Doe mee met Unmasked! 🎭 ${url}`);
+  window.open(`https://wa.me/?text=${text}`, '_blank');
+}
+
+function shareInviteEmail() {
+  const url = buildInviteUrl();
+  if (!url) return;
+  const subject = encodeURIComponent('Doe mee met Unmasked!');
+  const body = encodeURIComponent(`Doe mee met onze Unmasked-lobby:\n${url}`);
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
 }
 
 function renderLobbyScreen(lobby) {
@@ -515,8 +563,11 @@ async function submitDossierAndWait() {
 // de host beheert timing en kent scores toe zodat niemand dubbel telt.
 
 const QUICKFIRE_SECONDS = 10;
+const NEXT_BTN_DELAY_MS = 1500;
 let qfCountdownTimer = null;
 let lastRenderedQFIndex = -1;
+let lastFlashedQFIndex = -1;
+let qfNextBtnReady = {};
 
 function renderRound1Intro(lobby) {
   const introScreen = document.getElementById('s-round1-intro');
@@ -575,12 +626,21 @@ function renderQuickFire(lobby) {
   revealBox.style.display = qf.revealed ? 'block' : 'none';
   if (qf.revealed) {
     clearInterval(qfCountdownTimer);
+    if (lastFlashedQFIndex !== qf.index) {
+      lastFlashedQFIndex = qf.index;
+      flashTimerZero('r1-timer-ring');
+      // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
+      // iedereen de tijd heeft om het resultaat te lezen in plaats van
+      // meteen door te moeten klikken.
+      setTimeout(() => { qfNextBtnReady[qf.index] = true; renderQuickFire(latestLobby); }, NEXT_BTN_DELAY_MS);
+    }
     const correctVoters = Object.entries(qf.answers || {}).filter(([, a]) => a.guess === q.correctPlayer).map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
     document.getElementById('r1-reveal-card').innerHTML = `
       <div class="card-title">Het was ${q.correctPlayer}!</div>
       <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => p.name).join(', ')}` : 'Niemand raadde het deze keer.'}</div>`;
     const nextBtn = document.getElementById('r1-next-btn');
-    nextBtn.style.display = Session.isHost ? 'block' : 'none';
+    const nextReady = !!qfNextBtnReady[qf.index];
+    nextBtn.style.display = (Session.isHost && nextReady) ? 'block' : 'none';
     nextBtn.textContent = qf.index === qf.questions.length - 1 ? 'Bekijk scorebord →' : 'Volgende vraag →';
     document.getElementById('r1-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   }
@@ -672,6 +732,8 @@ const PHOTOROUND_SECONDS = 20;
 const ROUND2_PHOTO_COUNT = 8;
 let photoRoundTicker = null;
 let lastRenderedPhotoIndex = -1;
+let lastFlashedPhotoIndex = -1;
+let photoNextBtnReady = {};
 
 function renderRound2Intro(lobby) {
   const introScreen = document.getElementById('s-round2-intro');
@@ -761,6 +823,12 @@ function renderPhotoRound(lobby) {
   const nb = document.getElementById('r2-next-btn');
   if (pr.revealed) {
     clearInterval(photoRoundTicker);
+    if (lastFlashedPhotoIndex !== pr.index) {
+      lastFlashedPhotoIndex = pr.index;
+      // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
+      // iedereen de tijd heeft om het resultaat te lezen.
+      setTimeout(() => { photoNextBtnReady[pr.index] = true; renderPhotoRound(latestLobby); }, NEXT_BTN_DELAY_MS);
+    }
     photoEl.style.transition = 'transform 0.5s ease';
     photoEl.style.transform = 'scale(1)';
     document.getElementById('r2-zoombar').style.width = '100%';
@@ -789,7 +857,8 @@ function renderPhotoRound(lobby) {
       flash.textContent = '0 punten';
       fb.innerHTML = `<span style="color:#e24b4a;">⏱ Niemand raadde het — het was ${photo.player}</span>`;
     }
-    nb.style.display = Session.isHost ? 'block' : 'none';
+    const photoNextReady = !!photoNextBtnReady[pr.index];
+    nb.style.display = (Session.isHost && photoNextReady) ? 'block' : 'none';
     nb.textContent = pr.index === pr.photos.length - 1 ? 'Bekijk scorebord →' : 'Volgende foto →';
     document.getElementById('r2-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   } else {
@@ -994,6 +1063,8 @@ async function nextHotOrNot() {
 const VERHOOR_SECONDS = 20;
 let verhoorCountdownTimer = null;
 let lastSpokenVerhoorIndex = -1;
+let lastFlashedVerhoorIndex = -1;
+let verhoorNextBtnReady = {};
 
 function pickRound3Confessions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
@@ -1071,6 +1142,13 @@ function renderVerhoor(lobby) {
   revealBox.style.display = v.revealed ? 'block' : 'none';
   if (v.revealed) {
     clearInterval(verhoorCountdownTimer);
+    if (lastFlashedVerhoorIndex !== v.index) {
+      lastFlashedVerhoorIndex = v.index;
+      flashTimerZero('r3-timer-ring');
+      // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
+      // iedereen de tijd heeft om het resultaat te lezen.
+      setTimeout(() => { verhoorNextBtnReady[v.index] = true; renderVerhoor(latestLobby); }, NEXT_BTN_DELAY_MS);
+    }
     const confessor = v.players.find(p => p.id === q.playerId);
     const correctVoters = Object.entries(v.answers || {}).filter(([voterId, a]) => voterId !== q.playerId && a.guess === q.playerId).map(([voterId]) => v.players.find(p => p.id === voterId)).filter(Boolean);
     const caught = correctVoters.length > 0;
@@ -1078,7 +1156,8 @@ function renderVerhoor(lobby) {
       <div class="card-title">Het was ${confessor ? confessor.name : '?'}!</div>
       <div class="card-sub">${caught ? `Ontmaskerd door: ${correctVoters.map(p => p.name).join(', ')} (${confessor ? confessor.name : ''} verliest punten)` : 'Niemand raadde het op tijd — geen puntenverlies.'}</div>`;
     const nextBtn = document.getElementById('r3-next-btn');
-    nextBtn.style.display = Session.isHost ? 'block' : 'none';
+    const verhoorNextReady = !!verhoorNextBtnReady[v.index];
+    nextBtn.style.display = (Session.isHost && verhoorNextReady) ? 'block' : 'none';
     nextBtn.textContent = v.index === v.list.length - 1 ? 'Bekijk scorebord →' : 'Volgende bekentenis →';
     document.getElementById('r3-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   }

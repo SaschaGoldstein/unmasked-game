@@ -48,6 +48,16 @@ body {
   background-attachment: fixed;
 }
 
+/* ── Ontsnappingsluik ── */
+#leave-game-btn {
+  position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; z-index: 500;
+  width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--card-border);
+  background: rgba(20,18,32,0.7); backdrop-filter: blur(4px); color: var(--text-muted);
+  font-size: 15px; line-height: 1; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+#leave-game-btn:active { opacity: 0.7; }
+
 /* ── Screens ── */
 .screen {
   display: none;
@@ -222,11 +232,20 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .status-wait { background: #241c08; color: #d4a72c; }
 
 /* ── Progress Bar ── */
-.progress-bar { height: 6px; background: var(--card-border); border-radius: 3px; margin-bottom: 20px; overflow: hidden; width: 100%; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px; transition: width 0.4s ease; }
+.progress-bar { height: 10px; background: var(--card-border); border-radius: 5px; margin-bottom: 20px; overflow: hidden; width: 100%; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 5px; transition: width 0.4s ease; box-shadow: 0 0 8px rgba(255,61,107,0.5); }
 
 /* ── Waiting ── */
 .waiting-big { font-size: 54px; margin: 16px 0 12px; display: block; filter: drop-shadow(0 0 22px rgba(255,61,107,0.35)); }
+@keyframes waitingPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.75; } }
+.waiting-pulse { animation: waitingPulse 1.8s ease-in-out infinite; }
+/* Animeren van de content-property is niet overal betrouwbaar (vooral
+   iOS Safari) — drie losse stippen met vertraagde fade is dat wel. */
+.waiting-dots { display: inline-flex; gap: 2px; margin: 0 2px; }
+.waiting-dots span { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); animation: waitingDotFade 1.2s ease-in-out infinite; }
+.waiting-dots span:nth-child(2) { animation-delay: 0.2s; }
+.waiting-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes waitingDotFade { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
 .waiting-title { font-family: var(--font-display); font-size: 25px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
 .waiting-sub { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; max-width: 300px; }
 .pill { display: inline-block; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 20px; padding: 6px 14px; font-size: 13px; color: var(--text-muted); margin: 4px; font-weight: 500; }
@@ -255,9 +274,17 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .timer-ring { position: relative; width: 76px; height: 76px; margin: 0 auto 20px; }
 .timer-ring svg { transform: rotate(-90deg); }
 .timer-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--text); }
+/* Korte, opvallende flits zodra de tijd om is — merkbaar zonder geluid. */
+@keyframes timerZeroFlash {
+  0% { box-shadow: 0 0 0 0 rgba(255,61,107,0.9); }
+  60% { box-shadow: 0 0 0 22px rgba(255,61,107,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,61,107,0); }
+}
+.timer-ring.flash { border-radius: 50%; animation: timerZeroFlash 0.6s ease-out; }
+.timer-ring.flash .timer-num { color: var(--red); }
 
 /* ── Answer Cards ── */
-.answer-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
+.answer-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 18px 20px; min-height: 30px; display: flex; align-items: center; margin-bottom: 14px; cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
 .answer-card:active { opacity: 0.85; transform: scale(0.985); }
 .answer-card.correct { border-color: var(--green); background: var(--green-bg); box-shadow: 0 0 0 1px var(--green) inset; }
 .answer-card.wrong { border-color: #8b1a1a; background: var(--red-bg); opacity: 0.6; }

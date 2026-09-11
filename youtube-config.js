@@ -17,4 +17,4 @@
 //  om te registreren, geen "voeg mij toe als tester"-stap.
 // ─────────────────────────────────────────
 
-const YOUTUBE_API_KEY = '';
+const YOUTUBE_API_KEY = 'AIzaSyCoSi_pDarJO0DRli6LD0fd3zMYAszpbWI';

@@ -420,6 +420,36 @@ async function voteBiecht(code, targetPlayerId, voterId) {
   });
 }
 
+async function submitBiechtGuess(code, playerId, guess) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!lobby.biecht) return;
+    if (!lobby.biecht.answers) lobby.biecht.answers = {};
+    if (lobby.biecht.answers[playerId]) return; // één gok per verhaal
+    lobby.biecht.answers[playerId] = { guess, at: Date.now() };
+  });
+}
+
+// Atomaire onthulling + score-toekenning, zelfde patroon als
+// revealQuickfire — kent punten toe aan wie het eerst juist gokte van
+// wie het verhaal is. Geen vaste tijdslimiet (opnames zijn onbeperkt
+// lang), dus "eerste juiste gok wint" i.p.v. een snelheidsformule.
+async function revealBiechtStory(code, index) {
+  return Backend.updateLobby(code, (lobby) => {
+    const b = lobby.biecht;
+    if (!b || b.index !== index || b.revealed) return;
+    const targetId = b.order[b.index];
+    const correctGuessers = Object.entries(b.answers || {})
+      // Je kan geen punten krijgen door je eigen verhaal te "raden".
+      .filter(([voterId, a]) => voterId !== targetId && a.guess === targetId)
+      .sort((a, b2) => a[1].at - b2[1].at);
+    if (correctGuessers.length) {
+      const winner = findPlayer(lobby, correctGuessers[0][0]);
+      if (winner) winner.score = (winner.score || 0) + 5;
+    }
+    b.revealed = true;
+  });
+}
+
 async function setSoundtrack(code, soundtrackState) {
   return Backend.updateLobby(code, (lobby) => { lobby.soundtrack = soundtrackState; });
 }
@@ -447,6 +477,6 @@ window.GameOps = {
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
   setHotOrNot, voteHotOrNot,
   setVerhoor, submitVerhoorGuess, revealVerhoor,
-  setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht,
+  setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht, submitBiechtGuess, revealBiechtStory,
   setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess,
 };

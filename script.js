@@ -1363,10 +1363,15 @@ function showScoreR3() {
 
 // ── Ronde 4: Soundtrack & Spirit ──────────
 // Elk lievelingsnummer dat een speler in zijn dossier opgaf, wordt
-// afgespeeld — de rest raadt van wie het is. Zonder Spotify-koppeling
-// speelt er geen echt fragment, maar blijft het dezelfde ronde: de
-// getypte naam van het nummer wordt dan getoond zodat de host hem kan
+// afgespeeld via YouTube — de rest raadt van wie het is. Geen
+// YouTube-sleutel geconfigureerd (of geen match gevonden), dan speelt
+// er geen echt fragment, maar blijft het dezelfde ronde: de getypte
+// naam van het nummer wordt dan getoond zodat de host hem kan
 // voorlezen. Er is geen ander soort Ronde 4.
+//
+// In tegenstelling tot de vorige Spotify-opzet hoeft niemand hier in te
+// loggen — een kale API-sleutel in youtube-config.js volstaat voor
+// zowel zoeken als afspelen, dus er is geen "verbind eerst"-stap nodig.
 
 function goRound4Intro() {
   go('s-round4-intro');
@@ -1377,23 +1382,11 @@ function renderRound4Intro(lobby) {
   const introScreen = document.getElementById('s-round4-intro');
   if (!introScreen) return;
 
-  const spotifyOk = typeof spotifyConfigured === 'function' && spotifyConfigured();
-  const connected = spotifyOk && spotifyIsConnected();
-  const authError = typeof getSpotifyAuthError === 'function' ? getSpotifyAuthError() : null;
-  document.getElementById('r4intro-spotify-connect-btn').style.display = (Session.isHost && spotifyOk && !connected) ? 'block' : 'none';
-  const statusEl = document.getElementById('r4intro-spotify-status');
-  if (!spotifyOk) {
-    statusEl.textContent = '';
-  } else if (connected) {
-    statusEl.textContent = '✓ Verbonden met Spotify';
-    statusEl.style.color = '';
-  } else if (authError) {
-    statusEl.textContent = '⚠️ Verbinden mislukt: ' + authError;
-    statusEl.style.color = 'var(--red)';
-  } else {
-    statusEl.textContent = 'Nog niet verbonden — verbind om de nummers ook echt te horen (anders leest de host de titel voor).';
-    statusEl.style.color = '';
-  }
+  const musicOk = typeof youtubeConfigured === 'function' && youtubeConfigured();
+  const statusEl = document.getElementById('r4intro-music-status');
+  statusEl.textContent = musicOk
+    ? ''
+    : 'Geen YouTube-sleutel geconfigureerd — de host leest de titel voor in plaats van een fragment af te spelen.';
   document.getElementById('r4intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r4intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
 }
@@ -1414,20 +1407,20 @@ async function hostStartRound4() {
 }
 
 // Elke speler die een lievelingsnummer invulde, hoort in de ronde thuis —
-// ook als Spotify de exacte titel niet kan vinden (trackId blijft dan
-// null en renderSoundtrack toont gewoon de getypte tekst in plaats van
-// een fragment af te spelen). Bij een grote groep wordt vooraf al
-// afgekapt tot ROUND_ITEM_CAP, zodat we ook geen Spotify-opzoekingen
-// verspillen aan nummers die toch niet gebruikt worden.
+// ook als YouTube geen match vindt (trackId blijft dan null en
+// renderSoundtrack toont gewoon de getypte tekst in plaats van een
+// fragment af te spelen). Bij een grote groep wordt vooraf al afgekapt
+// tot ROUND_ITEM_CAP, zodat we ook geen YouTube-opzoekingen verspillen
+// aan nummers die toch niet gebruikt worden.
 async function pickSoundtrack() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
   const withSongs = shuffle(lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim())).slice(0, ROUND_ITEM_CAP);
   if (withSongs.length === 0) return null;
-  const canSearchSpotify = typeof spotifyConfigured === 'function' && spotifyConfigured() && spotifyIsConnected();
+  const canSearchYouTube = typeof youtubeConfigured === 'function' && youtubeConfigured();
   const list = [];
   for (const p of withSongs) {
     const query = p.dossierAnswers[SONG_Q].trim();
-    const track = canSearchSpotify ? await spotifySearchTrack(query) : null;
+    const track = canSearchYouTube ? await youtubeSearchTrack(query) : null;
     list.push({
       trackId: track ? track.id : null,
       trackName: track ? track.name : query,
@@ -1444,10 +1437,10 @@ function showScoreR4() {
   go('s-round4-score');
 }
 
-// ── Ronde 4 (met Spotify): Soundtrack & Spirit ────
+// ── Ronde 4 (met YouTube): Soundtrack & Spirit ────
 // Host-gestuurd en live gesynchroniseerd, zoals Ronde 3: alleen de host
-// speelt het fragment af (via de Spotify iFrame API) en kent scores toe,
-// alle spelers gokken mee op hun eigen scherm.
+// speelt het fragment af (via de YouTube IFrame Player API) en kent
+// scores toe, alle spelers gokken mee op hun eigen scherm.
 
 let lastRenderedSoundtrackIndex = -1;
 let soundtrackPlayedForIndex = -1;
@@ -1466,8 +1459,8 @@ async function hostPlaySoundtrack() {
   const st = latestLobby.soundtrack;
   soundtrackPlayedForIndex = st.index;
   const track = st.list[st.index];
-  if (!track.trackId) return; // geen Spotify-match voor dit nummer — niets af te spelen
-  await playSpotifyTrack(track.trackId, 'st-embed');
+  if (!track.trackId) return; // geen YouTube-match voor dit nummer — niets af te spelen
+  await playYouTubeTrack(track.trackId, 'st-embed');
 }
 
 function renderSoundtrack(lobby) {
@@ -1479,7 +1472,7 @@ function renderSoundtrack(lobby) {
     lastRenderedSoundtrackIndex = st.index;
     document.getElementById('st-embed').innerHTML = track.trackId
       ? ''
-      : `<div class="label-sm" style="text-align:center;">🔇 Geen Spotify-fragment gevonden — host, lees dit voor: <strong>${track.trackName}</strong></div>`;
+      : `<div class="label-sm" style="text-align:center;">🔇 Geen YouTube-fragment gevonden — host, lees dit voor: <strong>${track.trackName}</strong></div>`;
     // Auto-play for the host as soon as a new song comes up — no manual
     // tap needed. The button stays available as a fallback in case the
     // browser blocks autoplay, or someone wants to replay the fragment.
@@ -1591,7 +1584,7 @@ async function hostNextSoundtrack() {
     const winners = Object.entries(st.drinkAnswers || {}).filter(([id, d]) => id !== track.playerId && d === correctDrink).map(([id]) => id);
     for (const id of winners) { try { await GameOps.addScore(Session.code, id, 2); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
   }
-  if (typeof stopSpotifyPlayback === 'function') stopSpotifyPlayback();
+  if (typeof stopYouTubePlayback === 'function') stopYouTubePlayback();
   const nextIndex = st.index + 1;
   if (nextIndex >= st.list.length) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round4-score'));
@@ -1612,6 +1605,7 @@ let recordingSeconds = 0;
 let rawRecordingBlob = null;
 let distortedVoiceDataUrl = null;
 let lastRenderedBiechtKey = '';
+let biechtOptionsCache = [];
 let selectedVoiceStyle = 'low';
 // Recording itself has no fixed cap — stop whenever you're done. This
 // ceiling only exists so a single voice clip can never grow past what
@@ -1838,7 +1832,7 @@ async function hostStartBiechtPlayback() {
     showFinal();
     return;
   }
-  const biecht = { stage: 'playback', order, index: 0, votes: {}, bonusGiven: false };
+  const biecht = { stage: 'playback', order, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false, votes: {} };
   await withRetry(() => GameOps.setBiecht(Session.code, biecht));
   await withRetry(() => GameOps.setPhase(Session.code, 'biecht-active'));
   go('s-round5-play');
@@ -1862,10 +1856,52 @@ async function renderBiecht(lobby) {
         audioEl.src = url;
         document.getElementById('biecht-play-hint').textContent = 'Een vervormde stem... wie zou het zijn?';
       });
+      // Eenmalig per verhaal bepalen, anders schudden de knoppen door
+      // elkaar bij elke her-render.
+      biechtOptionsCache = pickAnswerOptions(lobby.players, targetId, (p) => p.id);
     }
-    document.getElementById('biecht-play-next-btn').style.display = Session.isHost ? 'block' : 'none';
-    document.getElementById('biecht-play-next-btn').textContent = b.index === b.order.length - 1 ? 'Naar de stemronde →' : 'Volgende →';
-    document.getElementById('biecht-play-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+
+    const myGuess = (b.answers || {})[Session.playerId];
+    const wrap = document.getElementById('biecht-guess-players');
+    wrap.innerHTML = '';
+    biechtOptionsCache.forEach((p) => {
+      const d = document.createElement('div');
+      d.className = 'player-btn';
+      if (b.revealed) {
+        if (p.id === targetId) d.classList.add('correct');
+        else if (myGuess && myGuess.guess === p.id) d.classList.add('wrong');
+      } else if (myGuess && myGuess.guess === p.id) {
+        d.classList.add('pending');
+      }
+      d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+      // Iedereen mag altijd gokken, ook op je eigen verhaal — anders is
+      // meteen duidelijk voor de rest van de kamer van wie het verhaal is
+      // (geen punten op je eigen verhaal wordt afgedwongen in de backend).
+      if (!myGuess && !b.revealed) d.onclick = () => submitBiechtGuess(p.id);
+      wrap.appendChild(d);
+    });
+
+    const revealBox = document.getElementById('biecht-reveal');
+    revealBox.style.display = b.revealed ? 'block' : 'none';
+    const revealBtn = document.getElementById('biecht-reveal-btn');
+    const nextBtn = document.getElementById('biecht-play-next-btn');
+    if (b.revealed) {
+      const teller = lobby.players.find(p => p.id === targetId);
+      const correctVoters = Object.entries(b.answers || {})
+        .filter(([voterId, a]) => voterId !== targetId && a.guess === targetId)
+        .map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
+      document.getElementById('biecht-reveal-card').innerHTML = `
+        <div class="card-title">Het was ${teller ? teller.name : '?'}!</div>
+        <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => p.name).join(', ')}` : 'Niemand raadde het.'}</div>`;
+      revealBtn.style.display = 'none';
+      nextBtn.style.display = Session.isHost ? 'block' : 'none';
+      nextBtn.textContent = b.index === b.order.length - 1 ? 'Naar de stemronde →' : 'Volgende verhaal →';
+      document.getElementById('biecht-play-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+    } else {
+      revealBtn.style.display = Session.isHost ? 'block' : 'none';
+      nextBtn.style.display = 'none';
+      document.getElementById('biecht-play-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+    }
   }
 
   if (b.stage === 'voting') {
@@ -1873,6 +1909,21 @@ async function renderBiecht(lobby) {
     if (!document.getElementById('s-round5-vote').classList.contains('active')) return;
     renderBiechtVoting(lobby, b);
   }
+}
+
+async function submitBiechtGuess(targetId) {
+  if (!latestLobby || !latestLobby.biecht) return;
+  const b = latestLobby.biecht;
+  const answers = { ...(b.answers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
+  renderBiecht(updateLocalLobby({ biecht: { ...b, answers } }));
+  try { await withRetry(() => GameOps.submitBiechtGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
+}
+
+async function hostRevealBiechtStory() {
+  const b = latestLobby.biecht;
+  if (!b || b.revealed) return;
+  await GameOps.revealBiechtStory(Session.code, b.index);
+  renderBiecht(updateLocalLobby({ biecht: { ...b, revealed: true } }));
 }
 
 function renderBiechtVoting(lobby, b) {
@@ -1909,6 +1960,7 @@ function renderBiechtVoting(lobby, b) {
 
 async function hostNextBiechtPlay() {
   const b = latestLobby.biecht;
+  if (!b.revealed) return; // pas verder nadat de verteller onthuld is
   const nextIndex = b.index + 1;
   if (nextIndex >= b.order.length) {
     const next = { ...b, stage: 'voting' };
@@ -1917,7 +1969,7 @@ async function hostNextBiechtPlay() {
     renderBiecht(updateLocalLobby({ biecht: next }));
     return;
   }
-  const next = { ...b, index: nextIndex };
+  const next = { ...b, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setBiecht(Session.code, next));
   renderBiecht(updateLocalLobby({ biecht: next }));
 }
@@ -2005,12 +2057,6 @@ function launchConfetti() {
   }
 }
 
-// ── Sessieherstel na Spotify-login ────────
-// spotifyConnect() navigeert de hele pagina weg naar Spotify en terug,
-// wat al het in-memory Session-geheugen zou wissen. Als er iets bewaard
-// staat, zit de speler dus middenin een terugkeer van die redirect —
-// herstel de lobby en spring terug naar waar ze waren.
-
 // Vastgesteld VOOR prefillJoinFromLink hieronder een ?join=-param uit de
 // URL verwijdert (via replaceState) — anders zou checkLocalSessionOnLoad
 // die param niet meer zien en zou een oude lokale sessie het verse
@@ -2022,7 +2068,6 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
 // code niet zelf moeten overtypen — enkel hun naam invullen en op
 // "Meedoen" tikken.
 (function prefillJoinFromLink() {
-  if (sessionStorage.getItem('unmasked:resume')) return; // sessieherstel na Spotify-login heeft voorrang
   const url = new URL(window.location.href);
   const joinCode = url.searchParams.get('join');
   if (!joinCode) return;
@@ -2038,10 +2083,9 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
 // ── Lokale sessieherstel (localStorage) ───
 // Toont het "Welkom terug"-scherm als er nog een niet-afgesloten sessie
 // in localStorage staat — bv. na het per ongeluk sluiten van het
-// tabblad. Een verse Spotify-terugkeer of een vers uitnodigingslinkje
-// hebben voorrang op dit oudere, lokaal onthouden spel.
+// tabblad. Een vers uitnodigingslinkje heeft voorrang op dit oudere,
+// lokaal onthouden spel.
 (function checkLocalSessionOnLoad() {
-  if (sessionStorage.getItem('unmasked:resume')) return;
   if (hadJoinLinkOnLoad) return;
   let saved;
   try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) { saved = null; }
@@ -2051,25 +2095,4 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
   if (nameEl) nameEl.textContent = saved.name;
   if (codeEl) codeEl.textContent = saved.code;
   go('s-resume');
-})();
-
-(function restoreSessionAfterRedirect() {
-  const raw = sessionStorage.getItem('unmasked:resume');
-  if (!raw) return;
-  sessionStorage.removeItem('unmasked:resume');
-  try {
-    const saved = JSON.parse(raw);
-    if (!saved.code || !saved.playerId) return;
-    Session.code = saved.code;
-    Session.playerId = saved.playerId;
-    Session.isHost = !!saved.isHost;
-    subscribeLobby();
-    go(saved.screen || 's-home');
-    if (saved.screen === 's-round4-intro') {
-      // The Spotify token exchange (handleSpotifyRedirect in spotify.js) is
-      // still in flight at this point — re-render shortly after so the
-      // "✓ Verbonden" status picks it up without needing a lobby update.
-      setTimeout(() => renderRound4Intro(latestLobby || {}), 1500);
-    }
-  } catch (e) { /* corrupt/expired resume data — just stay on the home screen */ }
 })();

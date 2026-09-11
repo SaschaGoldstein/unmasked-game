@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=30" />
+  <link rel="stylesheet" href="style.css?v=31" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -402,8 +402,7 @@
         <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad de eigenaar → daarna een <strong>bonusgok</strong> voor het lievelingsdrankje</div></div>
         <div class="rule-row"><div class="rule-icon">🥤</div><div class="rule-text">Beide goed = <strong>extra punten</strong></div></div>
       </div>
-      <button class="btn secondary" id="r4intro-spotify-connect-btn" style="margin-top:16px;display:none;" onclick="spotifyConnect()">🎧 Host: verbind met Spotify</button>
-      <div class="label-sm" id="r4intro-spotify-status" style="margin-top:8px;"></div>
+      <div class="label-sm" id="r4intro-music-status" style="margin-top:16px;"></div>
       <button class="btn amber" id="r4intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartRound4()">Start de ronde →</button>
       <div class="label-sm" id="r4intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
@@ -459,11 +458,11 @@
       <span class="round-intro-icon">🎙️</span>
       <div class="round-intro-title">Ronde 5</div>
       <div class="round-intro-accent">De Biecht-Finale</div>
-      <div class="round-intro-sub">Ieders vervormde biecht — al opgenomen bij het invullen van je dossier — wordt nu afgespeeld. De groep luistert samen en stemt op het beste verhaal.</div>
+      <div class="round-intro-sub">Ieders vervormde biecht — al opgenomen bij het invullen van je dossier — wordt nu afgespeeld. Raad tijdens het luisteren van wie het verhaal is, en stem nadien op het beste verhaal.</div>
       <div class="rules">
         <div class="rule-row"><div class="rule-icon">🌀</div><div class="rule-text">Elke stem is al <strong>vervormd</strong> — anoniem</div></div>
-        <div class="rule-row"><div class="rule-icon">🎧</div><div class="rule-text">De groep luistert <strong>samen</strong>, verhaal per verhaal</div></div>
-        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Stem op het beste verhaal → <strong>+5 bonuspunten</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">🕵️</div><div class="rule-text">Gok <strong>tijdens het afspelen</strong> van wie het verhaal is</div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Juist &amp; als eerste geraden = <strong>punten</strong> · beste verhaal = <strong>+5 bonus</strong></div></div>
       </div>
       <button class="btn amber" id="r5intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartBiechtPlayback()">Start het luisteren →</button>
       <div class="label-sm" id="r5intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
@@ -476,12 +475,20 @@
       <div class="round-badge" style="background:linear-gradient(135deg,var(--violet),var(--accent));">Ronde 5</div>
       <div class="round-title">Biecht-Finale</div>
     </div>
-    <div class="screen-inner centered" style="padding-top:16px;">
+    <div class="screen-inner" style="padding-top:16px;">
       <div class="label-sm" id="biecht-play-num">Verhaal 1 van 4</div>
-      <span class="round-intro-icon">🌀</span>
-      <div class="waiting-title" style="font-size:18px;" id="biecht-play-hint">Een vervormde stem...</div>
-      <audio id="biecht-play-audio" controls style="width:100%;margin-top:12px;"></audio>
-      <button class="btn amber" id="biecht-play-next-btn" style="margin-top:auto;display:none;" onclick="hostNextBiechtPlay()">Volgende →</button>
+      <div class="suspect-card">
+        <div class="suspect-emoji">🌀</div>
+        <div class="suspect-confession" id="biecht-play-hint">Een vervormde stem...</div>
+      </div>
+      <audio id="biecht-play-audio" controls style="width:100%;margin:10px 0;"></audio>
+      <div class="label-sm">Van wie is dit verhaal? Gok gerust al tijdens het luisteren.</div>
+      <div class="player-grid" id="biecht-guess-players" style="margin-top:8px;"></div>
+      <div id="biecht-reveal" style="display:none;width:100%;margin-top:10px;">
+        <div class="card" id="biecht-reveal-card"></div>
+      </div>
+      <button class="btn amber" id="biecht-reveal-btn" style="margin-top:auto;display:none;" onclick="hostRevealBiechtStory()">Onthul de verteller →</button>
+      <button class="btn amber" id="biecht-play-next-btn" style="margin-top:8px;display:none;" onclick="hostNextBiechtPlay()">Volgende →</button>
       <div class="label-sm" id="biecht-play-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
@@ -516,10 +523,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=30"></script>
-<script src="backend.js?v=30"></script>
-<script src="spotify-config.js?v=30"></script>
-<script src="spotify.js?v=30"></script>
-<script src="script.js?v=30"></script>
+<script src="firebase-config.js?v=31"></script>
+<script src="backend.js?v=31"></script>
+<script src="youtube-config.js?v=31"></script>
+<script src="youtube.js?v=31"></script>
+<script src="script.js?v=31"></script>
 </body>
 </html>

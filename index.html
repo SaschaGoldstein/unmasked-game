@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=28" />
+  <link rel="stylesheet" href="style.css?v=29" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -28,6 +28,17 @@
         <div class="card-sub">Vul je dossier in, kom samen, en ontmasker je vrienden in 5 rondes — gewoon via je browser.</div>
       </div>
       <div class="nav-hint">Prototype v3 · 5 rondes · live multiplayer</div>
+    </div>
+  </div>
+
+  <!-- WELKOM TERUG (lokale sessieherstel) -->
+  <div class="screen" id="s-resume">
+    <div class="screen-inner centered">
+      <span class="round-intro-icon">👋</span>
+      <div class="section-title">Welkom terug, <span id="resume-name">daar</span>!</div>
+      <div class="section-sub">Wil je verdergaan met lobby <strong id="resume-code">—</strong>?</div>
+      <button class="btn amber" style="margin-top:28px;" onclick="resumeSession()">Ja, verdergaan →</button>
+      <button class="btn ghost" onclick="startFreshSession()">Nieuwe sessie starten</button>
     </div>
   </div>
 
@@ -505,10 +516,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=28"></script>
-<script src="backend.js?v=28"></script>
-<script src="spotify-config.js?v=28"></script>
-<script src="spotify.js?v=28"></script>
-<script src="script.js?v=28"></script>
+<script src="firebase-config.js?v=29"></script>
+<script src="backend.js?v=29"></script>
+<script src="spotify-config.js?v=29"></script>
+<script src="spotify.js?v=29"></script>
+<script src="script.js?v=29"></script>
 </body>
 </html>

@@ -151,6 +151,73 @@ function leaveGame() {
   if (Session.unsub) { try { Session.unsub(); } catch (e) { /* ignore */ } }
   Session.code = null; Session.playerId = null; Session.isHost = false; Session.unsub = null;
   latestLobby = null;
+  clearLocalDraftAndSession();
+  go('s-home');
+}
+
+// ── Sessieherstel via localStorage ────────
+// Sluit iemand de pagina/het tabblad per ongeluk (heel gewoon op een
+// telefoon) dan is Session tot nu toe helemaal weg — terugkomen betekent
+// opnieuw joinen als een NIEUWE speler, met een lege dossier-poging.
+// Deze sectie onthoudt wie je was (code/playerId/naam) plus, tijdens het
+// invullen van het dossier, je antwoorden tot dusver — zodat "Ja,
+// verdergaan" je terugzet in je eigen plek in de lobby i.p.v. een nieuwe
+// te openen.
+const SESSION_STORAGE_KEY = 'unmasked_session';
+const ANSWERS_STORAGE_KEY = 'unmasked_antwoorden';
+
+function saveLocalSession(name) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      name, code: Session.code, playerId: Session.playerId, isHost: Session.isHost,
+    }));
+  } catch (e) { /* localStorage niet beschikbaar (bv. privénavigatie) — negeren */ }
+}
+
+// Bewaart niet enkel de antwoorden maar ook de exacte vragenlijst zelf:
+// die wordt per speler willekeurig samengesteld uit een bank van 30
+// vragen (zie resetDossierState), dus enkel een vraag-INDEX bewaren zou
+// na een verse herlaad (met een NIEUWE willekeurige lijst) op de
+// verkeerde vraag kunnen slaan.
+function saveLocalAnswersDraft() {
+  try {
+    localStorage.setItem(ANSWERS_STORAGE_KEY, JSON.stringify({
+      questions: sessionDossierQs, answers: Session.dossierAnswers, index: dossierQ,
+    }));
+  } catch (e) { /* negeren */ }
+}
+
+function clearLocalDraftAndSession() {
+  try { localStorage.removeItem(SESSION_STORAGE_KEY); localStorage.removeItem(ANSWERS_STORAGE_KEY); } catch (e) { /* negeren */ }
+}
+
+async function resumeSession() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) { saved = null; }
+  if (!saved || !saved.code || !saved.playerId) { clearLocalDraftAndSession(); go('s-home'); return; }
+  Session.code = saved.code; Session.playerId = saved.playerId; Session.isHost = !!saved.isHost;
+  subscribeLobby();
+
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(ANSWERS_STORAGE_KEY) || 'null'); } catch (e) { draft = null; }
+  if (draft && Array.isArray(draft.questions) && draft.questions.length && (draft.index || 0) < draft.questions.length) {
+    // Nog niet klaar met het dossier — spring naar de eerste onbeantwoorde
+    // vraag met exact dezelfde vragenlijst als voorheen.
+    sessionDossierQs = draft.questions;
+    Session.dossierAnswers = draft.answers || {};
+    dossierQ = draft.index || 0;
+    renderCurrentDossierQuestion();
+    go('s-dossier');
+    return;
+  }
+  // Dossier al volledig ingevuld (of geen bruikbare opgeslagen voortgang)
+  // — laat de live-synchronisatie vanaf hier vanzelf vooruitspringen naar
+  // de huidige fase van het spel.
+  go('s-waiting');
+}
+
+function startFreshSession() {
+  clearLocalDraftAndSession();
   go('s-home');
 }
 
@@ -341,6 +408,7 @@ async function createLobbyClick() {
   try {
     const { code, playerId } = await Backend.createLobby(name, maxPlayers);
     Session.code = code; Session.playerId = playerId; Session.isHost = true;
+    saveLocalSession(name);
     subscribeLobby();
     go('s-lobby');
   } catch (e) {
@@ -357,6 +425,7 @@ async function joinLobbyClick() {
   try {
     const res = await Backend.joinLobby(code, name);
     Session.code = res.code; Session.playerId = res.playerId; Session.isHost = false;
+    saveLocalSession(name);
     subscribeLobby();
     resetDossierState();
     resetPhotoState();
@@ -552,17 +621,25 @@ async function skipMaskAndContinue() {
   go('s-dossier-voice');
 }
 
+// Tekent het huidige dossierscherm op basis van dossierQ/sessionDossierQs
+// — herbruikt door zowel resetDossierState() (verse start) als
+// resumeSession() (hervatten met een bewaarde vragenlijst en index).
+function renderCurrentDossierQuestion() {
+  const total = sessionDossierQs.length;
+  document.getElementById('q-counter').textContent = `Vraag ${dossierQ + 1} van ${total}`;
+  document.getElementById('q-text').textContent = sessionDossierQs[dossierQ];
+  document.getElementById('dossier-progress').style.width = Math.round(((dossierQ + 1) / total) * 100) + '%';
+  document.getElementById('q-answer').value = '';
+  document.getElementById('dossier-next-btn').textContent = (dossierQ === total - 1) ? 'Verder →' : 'Volgende →';
+}
+
 function resetDossierState() {
   dossierQ = 0;
   Session.dossierAnswers = {};
   // Elke speler krijgt een eigen willekeurige subset van de vragenbank,
   // plus altijd de bekentenis/liedje/drankje-vraag aan het eind.
   sessionDossierQs = [...shuffle(PARTY_QS).slice(0, PLAYER_PARTY_QUESTION_COUNT), CONFESSION_Q, SONG_Q, DRINK_Q];
-  document.getElementById('q-counter').textContent = `Vraag 1 van ${sessionDossierQs.length}`;
-  document.getElementById('q-text').textContent = sessionDossierQs[0];
-  document.getElementById('dossier-progress').style.width = Math.round((1 / sessionDossierQs.length) * 100) + '%';
-  document.getElementById('q-answer').value = '';
-  document.getElementById('dossier-next-btn').textContent = 'Volgende →';
+  renderCurrentDossierQuestion();
 }
 
 function nextQ() {
@@ -572,6 +649,7 @@ function nextQ() {
   if (val) Session.dossierAnswers[currentQuestion] = val;
 
   dossierQ++;
+  saveLocalAnswersDraft();
   const total = sessionDossierQs.length;
 
   if (dossierQ >= total) {
@@ -579,13 +657,7 @@ function nextQ() {
     return;
   }
 
-  document.getElementById('q-counter').textContent = `Vraag ${dossierQ + 1} van ${total}`;
-  document.getElementById('q-text').textContent = sessionDossierQs[dossierQ];
-  document.getElementById('dossier-progress').style.width = Math.round(((dossierQ + 1) / total) * 100) + '%';
-  answerEl.value = '';
-  if (dossierQ === total - 1) {
-    document.getElementById('dossier-next-btn').textContent = 'Verder →';
-  }
+  renderCurrentDossierQuestion();
 }
 
 // Enige echte inzending van het dossier — gebeurt nu pas op het einde
@@ -610,6 +682,10 @@ async function submitDossierAndWait() {
       return;
     }
   }
+  // Dossier écht binnen bij de backend — de lokale antwoord-draft heeft
+  // geen nut meer (en zou anders bij een volgende hervatting proberen
+  // terug te springen naar een dossier dat al lang ingediend is).
+  try { localStorage.removeItem(ANSWERS_STORAGE_KEY); } catch (e) { /* negeren */ }
   go('s-waiting');
 }
 
@@ -1869,6 +1945,7 @@ async function finishBiechtVoting() {
 // dus hier hoeft alleen de definitieve, echte stand nog getoond te worden.
 
 function showFinal() {
+  clearLocalDraftAndSession(); // spel is echt afgelopen — niets meer om te hervatten
   let all = liveStandings();
   if (!all) {
     const others = PLAYERS.filter(p => p.name !== 'Sander').map(p => ({ name: p.name, pts: rand(14, 46), color: p.color }));
@@ -1929,6 +2006,12 @@ function launchConfetti() {
 // staat, zit de speler dus middenin een terugkeer van die redirect —
 // herstel de lobby en spring terug naar waar ze waren.
 
+// Vastgesteld VOOR prefillJoinFromLink hieronder een ?join=-param uit de
+// URL verwijdert (via replaceState) — anders zou checkLocalSessionOnLoad
+// die param niet meer zien en zou een oude lokale sessie het verse
+// linkje foutief overschrijven met het "Welkom terug"-scherm.
+const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join');
+
 // ── Rechtstreeks uitnodigen via link ──────
 // copyInviteCode() deelt een link met ?join=CODE erin, zodat vrienden de
 // code niet zelf moeten overtypen — enkel hun naam invullen en op
@@ -1945,6 +2028,24 @@ function launchConfetti() {
   if (codeInput) codeInput.value = joinCode.toUpperCase();
   const nameInput = document.getElementById('join-name');
   if (nameInput) nameInput.focus();
+})();
+
+// ── Lokale sessieherstel (localStorage) ───
+// Toont het "Welkom terug"-scherm als er nog een niet-afgesloten sessie
+// in localStorage staat — bv. na het per ongeluk sluiten van het
+// tabblad. Een verse Spotify-terugkeer of een vers uitnodigingslinkje
+// hebben voorrang op dit oudere, lokaal onthouden spel.
+(function checkLocalSessionOnLoad() {
+  if (sessionStorage.getItem('unmasked:resume')) return;
+  if (hadJoinLinkOnLoad) return;
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) { saved = null; }
+  if (!saved || !saved.name || !saved.code) return;
+  const nameEl = document.getElementById('resume-name');
+  const codeEl = document.getElementById('resume-code');
+  if (nameEl) nameEl.textContent = saved.name;
+  if (codeEl) codeEl.textContent = saved.code;
+  go('s-resume');
 })();
 
 (function restoreSessionAfterRedirect() {

@@ -738,8 +738,6 @@ function renderQuickFire(lobby) {
   }
 
   const myGuess = (qf.answers || {})[Session.playerId];
-  const me = lobby.players && lobby.players.find(p => p.id === Session.playerId);
-  const isMyOwnAnswer = !!me && me.name === q.correctPlayer;
   const wrap = document.getElementById('r1-answers');
   wrap.innerHTML = '';
   qfOptionsCache.forEach(p => {
@@ -752,8 +750,12 @@ function renderQuickFire(lobby) {
       d.classList.add('pending');
     }
     d.innerHTML = `<div class="answer-text">${p.name}</div>`;
-    // Je eigen antwoord raad je niet mee — dat zou je toch altijd weten.
-    if (!myGuess && !qf.revealed && !isMyOwnAnswer) d.onclick = () => submitQFGuess(p.name);
+    // Iedereen mag altijd gokken, ook op je eigen antwoord — anders is
+    // meteen duidelijk voor de rest van de kamer wie het juiste antwoord
+    // is (die persoon zou dan als enige niets kunnen aanklikken). Geen
+    // punten krijgen op je eigen antwoord wordt afgedwongen in de
+    // backend-scoring, niet door hier de knop te blokkeren.
+    if (!myGuess && !qf.revealed) d.onclick = () => submitQFGuess(p.name);
     wrap.appendChild(d);
   });
 
@@ -940,7 +942,6 @@ function renderPhotoRound(lobby) {
 
   const myGuess = (pr.answers || {})[Session.playerId];
   const me = lobby.players && lobby.players.find(p => p.id === Session.playerId);
-  const isMyOwnPhoto = !!me && me.name === photo.player;
   const wrap = document.getElementById('r2-players');
   wrap.innerHTML = '';
   photoOptionsCache.forEach(p => {
@@ -953,8 +954,10 @@ function renderPhotoRound(lobby) {
       d.classList.add('pending');
     }
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    // Je eigen foto raad je niet mee — dat zou je toch altijd weten.
-    if (!myGuess && !pr.revealed && !isMyOwnPhoto) d.onclick = () => submitPhotoGuess(p.name);
+    // Iedereen mag altijd gokken, ook op je eigen foto — anders is meteen
+    // duidelijk voor de rest van de kamer wie het is (geen punten op je
+    // eigen foto wordt afgedwongen in de backend-scoring).
+    if (!myGuess && !pr.revealed) d.onclick = () => submitPhotoGuess(p.name);
     wrap.appendChild(d);
   });
 
@@ -1262,7 +1265,6 @@ function renderVerhoor(lobby) {
   }
 
   const myGuess = (v.answers || {})[Session.playerId];
-  const isMyOwnConfession = q.playerId === Session.playerId;
   const wrap = document.getElementById('r3-answers');
   wrap.innerHTML = '';
   verhoorOptionsCache.forEach(p => {
@@ -1275,8 +1277,10 @@ function renderVerhoor(lobby) {
       d.classList.add('pending');
     }
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-    // Je eigen bekentenis raad je niet mee — dat zou je toch altijd weten.
-    if (!myGuess && !v.revealed && !isMyOwnConfession) d.onclick = () => submitMyVerhoorGuess(p.id);
+    // Iedereen mag altijd gokken, ook op je eigen bekentenis — anders is
+    // meteen duidelijk voor de rest van de kamer wie de dader is (geen
+    // punten op je eigen bekentenis wordt afgedwongen in de backend).
+    if (!myGuess && !v.revealed) d.onclick = () => submitMyVerhoorGuess(p.id);
     wrap.appendChild(d);
   });
 
@@ -1494,7 +1498,6 @@ function renderSoundtrack(lobby) {
   playBtn.textContent = alreadyPlayed ? '▶ Opnieuw afspelen' : '▶ Speel fragment af';
 
   const myOwnerGuess = (st.ownerAnswers || {})[Session.playerId];
-  const isMyOwnSong = Session.playerId === track.playerId;
   const ownerWrap = document.getElementById('st-owner-players');
   document.getElementById('st-stage-label').style.display = st.stage === 'guessing' ? 'block' : 'none';
   ownerWrap.style.display = st.stage === 'guessing' ? 'grid' : 'none';
@@ -1505,8 +1508,10 @@ function renderSoundtrack(lobby) {
       d.className = 'player-btn';
       if (myOwnerGuess && myOwnerGuess.guess === p.id) d.classList.add('pending');
       d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
-      // Je eigen nummer raad je niet mee — dat zou je toch altijd weten.
-      if (!myOwnerGuess && !isMyOwnSong) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
+      // Iedereen mag altijd gokken, ook op je eigen nummer — anders is
+      // meteen duidelijk voor de rest van de kamer wiens nummer het is
+      // (geen punten op je eigen nummer wordt afgedwongen in de backend).
+      if (!myOwnerGuess) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
       ownerWrap.appendChild(d);
     });
   }
@@ -1523,8 +1528,8 @@ function renderSoundtrack(lobby) {
       d.className = 'player-btn';
       if (myDrinkGuess === opt) d.classList.add('pending');
       d.innerHTML = `<div class="pb-name" style="text-align:center;padding:4px 0;">${opt}</div>`;
-      // Je eigen drankje raad je niet mee — dat zou je toch altijd weten.
-      if (!myDrinkGuess && !isMyOwnSong) d.onclick = () => submitSoundtrackDrinkGuess(opt);
+      // Zelfde reden als hierboven — iedereen mag altijd gokken.
+      if (!myDrinkGuess) d.onclick = () => submitSoundtrackDrinkGuess(opt);
       drinkWrap.appendChild(d);
     });
   }

@@ -398,13 +398,28 @@ function subscribeLobby() {
   });
 }
 
+// Zonder deze wacht-vlag kon een dubbele tik op "Lobby aanmaken"/
+// "Meedoen" (heel makkelijk op een telefoonscherm, zeker met wat
+// netwerkvertraging voor de knop zichtbaar reageert) de handler twee
+// keer afvuren. createLobby/joinLobby maken bij elke aanroep gewoon een
+// NIEUWE speler aan — geen controle op "besta ik al" — dus resulteerde
+// dat in dezelfde persoon die dubbel in de lobby stond, waarbij enkel
+// de laatst-aangemaakte identiteit ooit een dossier kon indienen en de
+// eerste voor altijd als "nog niet klaar" bleef hangen.
+let createLobbyInFlight = false;
+let joinLobbyInFlight = false;
+
 async function createLobbyClick() {
+  if (createLobbyInFlight) return;
   const name = document.getElementById('create-name').value.trim();
   const maxPlayers = parseInt(document.getElementById('create-maxplayers').value, 10) || 6;
   const errEl = document.getElementById('create-error');
   errEl.style.display = 'none';
   if (!name) { errEl.textContent = 'Vul je naam in.'; errEl.style.display = 'block'; return; }
   if (maxPlayers < MIN_PLAYERS) { errEl.textContent = `Minimum ${MIN_PLAYERS} spelers.`; errEl.style.display = 'block'; return; }
+  createLobbyInFlight = true;
+  const btn = document.getElementById('create-lobby-btn');
+  if (btn) btn.disabled = true;
   try {
     const { code, playerId } = await Backend.createLobby(name, maxPlayers);
     Session.code = code; Session.playerId = playerId; Session.isHost = true;
@@ -413,15 +428,22 @@ async function createLobbyClick() {
     go('s-lobby');
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = 'block';
+  } finally {
+    createLobbyInFlight = false;
+    if (btn) btn.disabled = false;
   }
 }
 
 async function joinLobbyClick() {
+  if (joinLobbyInFlight) return;
   const name = document.getElementById('join-name').value.trim();
   const code = document.getElementById('join-code').value.trim().toUpperCase();
   const errEl = document.getElementById('join-error');
   errEl.style.display = 'none';
   if (!name || !code) { errEl.textContent = 'Vul je naam en de lobby-code in.'; errEl.style.display = 'block'; return; }
+  joinLobbyInFlight = true;
+  const btn = document.getElementById('join-lobby-btn');
+  if (btn) btn.disabled = true;
   try {
     const res = await Backend.joinLobby(code, name);
     Session.code = res.code; Session.playerId = res.playerId; Session.isHost = false;
@@ -433,6 +455,9 @@ async function joinLobbyClick() {
     go('s-dossier');
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = 'block';
+  } finally {
+    joinLobbyInFlight = false;
+    if (btn) btn.disabled = false;
   }
 }
 

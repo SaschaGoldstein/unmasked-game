@@ -450,8 +450,75 @@ async function revealBiechtStory(code, index) {
   });
 }
 
+// Atomaire afronding van de "beste verhaal"-stemronde — telt de stemmen
+// en kent de bonuspunten toe, één keer, ongeacht hoe vaak dit wordt
+// aangeroepen. Zonder deze guard kon een dubbele tik op "Bekijk de
+// eindstand" de winnaar(s) van de stemronde twee keer de 5 bonuspunten
+// geven, vlak voor de uiteindelijke eindstand.
+async function finalizeBiechtVote(code) {
+  return Backend.updateLobby(code, (lobby) => {
+    const b = lobby.biecht;
+    if (!b || b.voteFinalized) return;
+    const tally = {};
+    Object.values(b.votes || {}).forEach((pid) => { tally[pid] = (tally[pid] || 0) + 1; });
+    const maxVotes = Math.max(0, ...Object.values(tally));
+    if (maxVotes > 0) {
+      const winners = Object.entries(tally).filter(([, c]) => c === maxVotes).map(([pid]) => pid);
+      for (const pid of winners) {
+        const p = findPlayer(lobby, pid);
+        if (p) p.score = (p.score || 0) + 5;
+      }
+    }
+    b.voteFinalized = true;
+  });
+}
+
 async function setSoundtrack(code, soundtrackState) {
   return Backend.updateLobby(code, (lobby) => { lobby.soundtrack = soundtrackState; });
+}
+
+// Atomaire onthulling + score-toekenning voor "van wie is dit nummer",
+// zelfde patroon als revealQuickfire — zie de uitleg daar. Zonder deze
+// guard-in-dezelfde-transactie kon een dubbele tik op "Onthul eigenaar
+// & drankje" de winnaar twee keer de 5 punten geven.
+async function revealSoundtrackOwner(code, index) {
+  return Backend.updateLobby(code, (lobby) => {
+    const st = lobby.soundtrack;
+    if (!st || st.index !== index || st.revealed) return;
+    const track = st.list[st.index];
+    const correctGuessers = Object.entries(st.ownerAnswers || {})
+      // Je kan geen punten krijgen door je eigen nummer te "raden".
+      .filter(([voterId, a]) => voterId !== track.playerId && a.guess === track.playerId)
+      .sort((a, b) => a[1].at - b[1].at);
+    if (correctGuessers.length) {
+      const winner = findPlayer(lobby, correctGuessers[0][0]);
+      if (winner) winner.score = (winner.score || 0) + 5;
+    }
+    st.revealed = true;
+  });
+}
+
+// Zelfde atomaire bescherming voor de drankje-bonusronde — voorkomt dat
+// een dubbele tik op "Volgende nummer" de juiste gokkers twee keer de
+// 2 bonuspunten geeft.
+async function revealSoundtrackDrink(code, index) {
+  return Backend.updateLobby(code, (lobby) => {
+    const st = lobby.soundtrack;
+    if (!st || st.index !== index || st.drinkRevealed) return;
+    const track = st.list[st.index];
+    const correctDrink = (track.drink || '').trim();
+    if (correctDrink) {
+      const winners = Object.entries(st.drinkAnswers || {})
+        // Je kan geen punten krijgen door je eigen drankje te "raden".
+        .filter(([id, d]) => id !== track.playerId && d === correctDrink)
+        .map(([id]) => id);
+      for (const id of winners) {
+        const p = findPlayer(lobby, id);
+        if (p) p.score = (p.score || 0) + 2;
+      }
+    }
+    st.drinkRevealed = true;
+  });
 }
 
 async function submitSoundtrackGuess(code, playerId, guess) {
@@ -477,6 +544,6 @@ window.GameOps = {
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
   setHotOrNot, voteHotOrNot,
   setVerhoor, submitVerhoorGuess, revealVerhoor,
-  setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht, submitBiechtGuess, revealBiechtStory,
-  setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess,
+  setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht, submitBiechtGuess, revealBiechtStory, finalizeBiechtVote,
+  setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess, revealSoundtrackOwner, revealSoundtrackDrink,
 };

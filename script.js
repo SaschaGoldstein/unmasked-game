@@ -1424,7 +1424,7 @@ async function hostStartRound4() {
     showScoreR4();
     return;
   }
-  const state = { list: soundtrack.list, players: soundtrack.players, index: 0, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
+  const state = { list: soundtrack.list, players: soundtrack.players, index: 0, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false, drinkRevealed: false };
   await withRetry(() => GameOps.setSoundtrack(Session.code, state));
   await withRetry(() => GameOps.setPhase(Session.code, 'soundtrack-active'));
   go('s-round4-soundtrack-q');
@@ -1578,18 +1578,26 @@ async function submitSoundtrackOwnerGuess(targetId) {
   try { await withRetry(() => GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
+let soundtrackOwnerRevealInFlight = false;
+
 async function hostRevealSoundtrackOwner() {
+  // Beschermt tegen een dubbele tik op "Onthul eigenaar & drankje" —
+  // GameOps.revealSoundtrackOwner is atomair en kent de 5 punten maar
+  // één keer toe (zie backend.js), maar zonder deze vlag zou een tweede
+  // tik hier toch nog een tweede keer de drinkOptions door elkaar
+  // schudden en de stage opnieuw instellen.
   const st = latestLobby.soundtrack;
-  const track = st.list[st.index];
-  const correctGuessers = Object.entries(st.ownerAnswers || {})
-    // Je kan geen punten krijgen door je eigen nummer te "raden".
-    .filter(([voterId, a]) => voterId !== track.playerId && a.guess === track.playerId)
-    .sort((a, b) => a[1].at - b[1].at);
-  if (correctGuessers.length) { try { await GameOps.addScore(Session.code, correctGuessers[0][0], 5); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
-  const drinkOptions = buildDrinkOptions(st.list, st.index);
-  const next = { ...st, stage: 'drink', revealed: true, drinkOptions, drinkAnswers: {} };
-  await withRetry(() => GameOps.setSoundtrack(Session.code, next));
-  renderSoundtrack(updateLocalLobby({ soundtrack: next }));
+  if (!st || st.revealed || soundtrackOwnerRevealInFlight) return;
+  soundtrackOwnerRevealInFlight = true;
+  try {
+    await withRetry(() => GameOps.revealSoundtrackOwner(Session.code, st.index));
+    const drinkOptions = buildDrinkOptions(st.list, st.index);
+    const next = { ...st, stage: 'drink', revealed: true, drinkOptions, drinkAnswers: {} };
+    await withRetry(() => GameOps.setSoundtrack(Session.code, next));
+    renderSoundtrack(updateLocalLobby({ soundtrack: next }));
+  } finally {
+    soundtrackOwnerRevealInFlight = false;
+  }
 }
 
 async function submitSoundtrackDrinkGuess(drinkText) {
@@ -1600,25 +1608,31 @@ async function submitSoundtrackDrinkGuess(drinkText) {
   try { await withRetry(() => GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
+let soundtrackNextInFlight = false;
+
 async function hostNextSoundtrack() {
-  const st = latestLobby.soundtrack;
-  const track = st.list[st.index];
-  const correctDrink = (track.drink || '').trim();
-  if (correctDrink) {
-    // Je kan geen punten krijgen door je eigen drankje te "raden".
-    const winners = Object.entries(st.drinkAnswers || {}).filter(([id, d]) => id !== track.playerId && d === correctDrink).map(([id]) => id);
-    for (const id of winners) { try { await GameOps.addScore(Session.code, id, 2); } catch (e) { /* one failed score-add shouldn't block reveal for everyone */ } }
+  // Zelfde dubbele-tik-bescherming als hierboven — de drankje-punten
+  // worden atomair toegekend door GameOps.revealSoundtrackDrink, maar
+  // zonder deze vlag zou een tweede tik hier toch de index nog eens
+  // kunnen ophogen vanuit dezelfde (nog niet bijgewerkte) lokale staat.
+  if (soundtrackNextInFlight) return;
+  soundtrackNextInFlight = true;
+  try {
+    const st = latestLobby.soundtrack;
+    await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, st.index));
+    if (typeof stopYouTubePlayback === 'function') stopYouTubePlayback();
+    const nextIndex = st.index + 1;
+    if (nextIndex >= st.list.length) {
+      await withRetry(() => GameOps.setPhase(Session.code, 'round4-score'));
+      showScoreR4();
+      return;
+    }
+    const next = { ...st, index: nextIndex, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false, drinkRevealed: false };
+    await withRetry(() => GameOps.setSoundtrack(Session.code, next));
+    renderSoundtrack(updateLocalLobby({ soundtrack: next }));
+  } finally {
+    soundtrackNextInFlight = false;
   }
-  if (typeof stopYouTubePlayback === 'function') stopYouTubePlayback();
-  const nextIndex = st.index + 1;
-  if (nextIndex >= st.list.length) {
-    await withRetry(() => GameOps.setPhase(Session.code, 'round4-score'));
-    showScoreR4();
-    return;
-  }
-  const next = { ...st, index: nextIndex, stage: 'guessing', ownerAnswers: {}, drinkOptions: [], drinkAnswers: {}, revealed: false };
-  await withRetry(() => GameOps.setSoundtrack(Session.code, next));
-  renderSoundtrack(updateLocalLobby({ soundtrack: next }));
 }
 
 // ── Ronde 5: Biecht-Finale (opname + stemvervorming + stemronde) ──
@@ -2008,17 +2022,21 @@ async function castBiechtVote(targetId) {
   try { await withRetry(() => GameOps.voteBiecht(Session.code, targetId, Session.playerId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
+let biechtVoteFinalizeInFlight = false;
+
 async function finishBiechtVoting() {
-  const b = latestLobby.biecht;
-  const tally = {};
-  Object.values(b.votes || {}).forEach((pid) => { tally[pid] = (tally[pid] || 0) + 1; });
-  const maxVotes = Math.max(0, ...Object.values(tally));
-  if (maxVotes > 0) {
-    const winners = Object.entries(tally).filter(([, c]) => c === maxVotes).map(([pid]) => pid);
-    for (const pid of winners) { try { await GameOps.addScore(Session.code, pid, 5); } catch (e) { /* one failed score-add shouldn't block the finale */ } }
+  // Beschermt tegen een dubbele tik op "Bekijk de eindstand" —
+  // GameOps.finalizeBiechtVote is atomair en kent de bonuspunten maar
+  // één keer toe (zie backend.js).
+  if (biechtVoteFinalizeInFlight) return;
+  biechtVoteFinalizeInFlight = true;
+  try {
+    await withRetry(() => GameOps.finalizeBiechtVote(Session.code));
+    await withRetry(() => GameOps.setPhase(Session.code, 'final'));
+    showFinal();
+  } finally {
+    biechtVoteFinalizeInFlight = false;
   }
-  await withRetry(() => GameOps.setPhase(Session.code, 'final'));
-  showFinal();
 }
 
 // ── Ronde 5: Eindstand ────────────────────

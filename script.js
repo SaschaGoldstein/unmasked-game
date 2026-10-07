@@ -94,7 +94,7 @@ const PLAYER_PARTY_QUESTION_COUNT = 12;
 // Minimum aantal spelers om te kunnen spelen — geen maximum, maar vanaf
 // meer dan ROUND_ITEM_CAP spelers tonen Ronde 1 t/m 5 maar een subset
 // (anders duurt een ronde met bv. 20 spelers veel te lang).
-const MIN_PLAYERS = 3;
+const MIN_PLAYERS = 2;
 const ROUND_ITEM_CAP = 10;
 
 const CONFESSION_Q = 'Beken hier iets kleins (een leugentje, iets stiekems, een onschuldig grensgeval):';

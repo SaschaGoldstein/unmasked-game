@@ -88,6 +88,7 @@ const PARTY_QS = [
   'Dit zou ik doen als ik morgen oneindig veel geld had:',
   'Het beroep dat ik had gewild als kind:',
   'Mijn meest onrealistische droom:',
+  'Mijn levensmotto is:',
 ];
 // Hoeveel vragen uit de bank één speler tijdens het dossier te zien krijgt.
 const PLAYER_PARTY_QUESTION_COUNT = 12;
@@ -520,8 +521,15 @@ function renderWaitingScreen(lobby) {
   document.getElementById('waiting-donelist').textContent = done.map(p => p.name).join(', ') || '—';
 
   const enoughPlayers = lobby.players.length >= MIN_PLAYERS;
-  const allDone = enoughPlayers && notDone.length === 0;
-  document.getElementById('waiting-start-btn').style.display = Session.isHost && allDone ? 'block' : 'none';
+  // De host mag altijd starten zodra er genoeg spelers zijn — niet
+  // iedereen moet eerst zijn dossier hebben ingediend. Wie nog niet klaar
+  // is, wordt door syncToLobbyPhase() gewoon automatisch meegetrokken
+  // naar Ronde 1 zodra het spel start (elke ronde filtert toch al op wie
+  // effectief een antwoord/foto/nummer/opname heeft achtergelaten).
+  document.getElementById('waiting-start-btn').style.display = Session.isHost && enoughPlayers ? 'block' : 'none';
+  const startWarning = document.getElementById('waiting-start-warning');
+  startWarning.style.display = (Session.isHost && enoughPlayers && notDone.length > 0) ? 'block' : 'none';
+  startWarning.textContent = `Let op: ${notDone.length} speler(s) nog niet klaar — als je nu start, missen zij de vragen/foto's/etc. die ze nog niet hebben ingevuld.`;
   const minPlayersMsg = document.getElementById('waiting-min-players-msg');
   minPlayersMsg.style.display = (Session.isHost && !enoughPlayers) ? 'block' : 'none';
   minPlayersMsg.textContent = `Nog minstens ${MIN_PLAYERS - lobby.players.length} speler(s) nodig om te starten (minimum ${MIN_PLAYERS}).`;

@@ -113,7 +113,7 @@ let pendingPhotoDataUrl = null;
 // the current lobby; latestLobby is the most recent snapshot pushed by the
 // backend's subscription, kept fresh regardless of which screen is active.
 
-const Session = { code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {} };
+const Session = { code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {}, gameName: null };
 let latestLobby = null;
 
 // Ná een eigen schrijfactie renderen we meteen lokaal (optimistic update)
@@ -150,9 +150,11 @@ function go(screenId) {
 function leaveGame() {
   if (!window.confirm('Spel verlaten en teruggaan naar het startscherm?')) return;
   if (Session.unsub) { try { Session.unsub(); } catch (e) { /* ignore */ } }
-  Session.code = null; Session.playerId = null; Session.isHost = false; Session.unsub = null;
-  latestLobby = null;
+  // Vóór het wissen van Session.code/gameName — clearLocalDraftAndSession()
+  // heeft die net nodig om de juiste localStorage-sleutel terug te vinden.
   clearLocalDraftAndSession();
+  Session.code = null; Session.playerId = null; Session.isHost = false; Session.unsub = null; Session.gameName = null;
+  latestLobby = null;
   go('s-home');
 }
 
@@ -160,18 +162,30 @@ function leaveGame() {
 // Sluit iemand de pagina/het tabblad per ongeluk (heel gewoon op een
 // telefoon) dan is Session tot nu toe helemaal weg — terugkomen betekent
 // opnieuw joinen als een NIEUWE speler, met een lege dossier-poging.
-// Deze sectie onthoudt wie je was (code/playerId/naam) plus, tijdens het
-// invullen van het dossier, je antwoorden tot dusver — zodat "Ja,
-// verdergaan" je terugzet in je eigen plek in de lobby i.p.v. een nieuwe
-// te openen.
-const SESSION_STORAGE_KEY = 'unmasked_session';
-const ANSWERS_STORAGE_KEY = 'unmasked_antwoorden';
+// Deze sectie onthoudt wie je was (code/spelnaam/naam/playerId) plus,
+// tijdens het invullen van het dossier, je antwoorden tot dusver — zodat
+// "Ja, verdergaan" je terugzet in je eigen plek in de lobby i.p.v. een
+// nieuwe te openen.
+//
+// Opgeslagen per spel (niet in één vaste key) onder
+// unmasked_<spelnaam>_<lobbycode> — zo overschrijft een tweede, latere
+// speelavond niet de nog-niet-opgeruimde sessie van een eerdere, en kan
+// iemand bewust de juiste terugkeren door naam + spelnaam + code exact
+// te matchen. LAST_SESSION_POINTER_KEY onthoudt enkel welke van die
+// sessies het meest recent actief was, om het terugkeerscherm voor het
+// gewone geval (één lopend spel) automatisch voor te vullen.
+const LAST_SESSION_POINTER_KEY = 'unmasked:lastSession';
 
-function saveLocalSession(name) {
+function sessionStorageKey(gameName, code) { return `unmasked_${gameName}_${code}`; }
+function answersStorageKey(gameName, code) { return `unmasked_antwoorden_${gameName}_${code}`; }
+
+function saveLocalSession(name, gameName) {
+  Session.gameName = gameName;
   try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-      name, code: Session.code, playerId: Session.playerId, isHost: Session.isHost,
+    localStorage.setItem(sessionStorageKey(gameName, Session.code), JSON.stringify({
+      name, code: Session.code, gameName, playerId: Session.playerId, isHost: Session.isHost,
     }));
+    localStorage.setItem(LAST_SESSION_POINTER_KEY, JSON.stringify({ gameName, code: Session.code }));
   } catch (e) { /* localStorage niet beschikbaar (bv. privénavigatie) — negeren */ }
 }
 
@@ -182,25 +196,49 @@ function saveLocalSession(name) {
 // verkeerde vraag kunnen slaan.
 function saveLocalAnswersDraft() {
   try {
-    localStorage.setItem(ANSWERS_STORAGE_KEY, JSON.stringify({
+    localStorage.setItem(answersStorageKey(Session.gameName, Session.code), JSON.stringify({
       questions: sessionDossierQs, answers: Session.dossierAnswers, index: dossierQ,
     }));
   } catch (e) { /* negeren */ }
 }
 
 function clearLocalDraftAndSession() {
-  try { localStorage.removeItem(SESSION_STORAGE_KEY); localStorage.removeItem(ANSWERS_STORAGE_KEY); } catch (e) { /* negeren */ }
+  try {
+    if (Session.gameName && Session.code) {
+      localStorage.removeItem(sessionStorageKey(Session.gameName, Session.code));
+      localStorage.removeItem(answersStorageKey(Session.gameName, Session.code));
+    }
+    localStorage.removeItem(LAST_SESSION_POINTER_KEY);
+  } catch (e) { /* negeren */ }
 }
 
 async function resumeSession() {
+  const name = document.getElementById('resume-name-input').value.trim();
+  const gameName = document.getElementById('resume-gamename-input').value.trim();
+  const code = document.getElementById('resume-code-input').value.trim().toUpperCase();
+  const errEl = document.getElementById('resume-error');
+  errEl.style.display = 'none';
+  if (!name || !gameName || !code) {
+    errEl.textContent = 'Vul je naam, de spelnaam en de lobby-code in.';
+    errEl.style.display = 'block';
+    return;
+  }
   let saved;
-  try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) { saved = null; }
-  if (!saved || !saved.code || !saved.playerId) { clearLocalDraftAndSession(); go('s-home'); return; }
-  Session.code = saved.code; Session.playerId = saved.playerId; Session.isHost = !!saved.isHost;
+  try { saved = JSON.parse(localStorage.getItem(sessionStorageKey(gameName, code)) || 'null'); } catch (e) { saved = null; }
+  if (!saved || !saved.playerId || !saved.name || saved.name.trim().toLowerCase() !== name.toLowerCase()) {
+    errEl.textContent = 'Geen opgeslagen sessie gevonden met exact die naam, spelnaam en code op dit toestel.';
+    errEl.style.display = 'block';
+    return;
+  }
+  Session.code = saved.code;
+  Session.playerId = saved.playerId;
+  Session.isHost = !!saved.isHost;
+  Session.gameName = saved.gameName;
+  try { localStorage.setItem(LAST_SESSION_POINTER_KEY, JSON.stringify({ gameName: saved.gameName, code: saved.code })); } catch (e) { /* negeren */ }
   subscribeLobby();
 
   let draft = null;
-  try { draft = JSON.parse(localStorage.getItem(ANSWERS_STORAGE_KEY) || 'null'); } catch (e) { draft = null; }
+  try { draft = JSON.parse(localStorage.getItem(answersStorageKey(gameName, code)) || 'null'); } catch (e) { draft = null; }
   if (draft && Array.isArray(draft.questions) && draft.questions.length && (draft.index || 0) < draft.questions.length) {
     // Nog niet klaar met het dossier — spring naar de eerste onbeantwoorde
     // vraag met exact dezelfde vragenlijst als voorheen.
@@ -218,7 +256,15 @@ async function resumeSession() {
 }
 
 function startFreshSession() {
-  clearLocalDraftAndSession();
+  try {
+    const raw = localStorage.getItem(LAST_SESSION_POINTER_KEY);
+    const ptr = raw ? JSON.parse(raw) : null;
+    if (ptr && ptr.gameName && ptr.code) {
+      localStorage.removeItem(sessionStorageKey(ptr.gameName, ptr.code));
+      localStorage.removeItem(answersStorageKey(ptr.gameName, ptr.code));
+    }
+    localStorage.removeItem(LAST_SESSION_POINTER_KEY);
+  } catch (e) { /* negeren */ }
   go('s-home');
 }
 
@@ -413,18 +459,20 @@ let joinLobbyInFlight = false;
 async function createLobbyClick() {
   if (createLobbyInFlight) return;
   const name = document.getElementById('create-name').value.trim();
+  const gameName = document.getElementById('create-gamename').value.trim();
   const maxPlayers = parseInt(document.getElementById('create-maxplayers').value, 10) || 6;
   const errEl = document.getElementById('create-error');
   errEl.style.display = 'none';
   if (!name) { errEl.textContent = 'Vul je naam in.'; errEl.style.display = 'block'; return; }
+  if (!gameName) { errEl.textContent = 'Vul een spelnaam in (bv. "Vrijdagavond bij Lien").'; errEl.style.display = 'block'; return; }
   if (maxPlayers < MIN_PLAYERS) { errEl.textContent = `Minimum ${MIN_PLAYERS} spelers.`; errEl.style.display = 'block'; return; }
   createLobbyInFlight = true;
   const btn = document.getElementById('create-lobby-btn');
   if (btn) btn.disabled = true;
   try {
-    const { code, playerId } = await Backend.createLobby(name, maxPlayers);
+    const { code, playerId } = await Backend.createLobby(name, maxPlayers, gameName);
     Session.code = code; Session.playerId = playerId; Session.isHost = true;
-    saveLocalSession(name);
+    saveLocalSession(name, gameName);
     subscribeLobby();
     go('s-lobby');
   } catch (e) {
@@ -438,17 +486,18 @@ async function createLobbyClick() {
 async function joinLobbyClick() {
   if (joinLobbyInFlight) return;
   const name = document.getElementById('join-name').value.trim();
+  const gameName = document.getElementById('join-gamename').value.trim();
   const code = document.getElementById('join-code').value.trim().toUpperCase();
   const errEl = document.getElementById('join-error');
   errEl.style.display = 'none';
-  if (!name || !code) { errEl.textContent = 'Vul je naam en de lobby-code in.'; errEl.style.display = 'block'; return; }
+  if (!name || !gameName || !code) { errEl.textContent = 'Vul je naam, de spelnaam en de lobby-code in.'; errEl.style.display = 'block'; return; }
   joinLobbyInFlight = true;
   const btn = document.getElementById('join-lobby-btn');
   if (btn) btn.disabled = true;
   try {
-    const res = await Backend.joinLobby(code, name);
+    const res = await Backend.joinLobby(code, name, gameName);
     Session.code = res.code; Session.playerId = res.playerId; Session.isHost = false;
-    saveLocalSession(name);
+    saveLocalSession(name, gameName);
     subscribeLobby();
     resetDossierState();
     resetPhotoState();
@@ -467,6 +516,7 @@ function buildInviteUrl() {
   const url = new URL(window.location.href);
   url.search = '';
   url.searchParams.set('join', Session.code);
+  if (Session.gameName) url.searchParams.set('spel', Session.gameName);
   return url.toString();
 }
 
@@ -501,6 +551,8 @@ function renderLobbyScreen(lobby) {
   const codeEl = document.getElementById('lobby-code-big');
   if (!codeEl) return;
   codeEl.textContent = lobby.code;
+  const gameNameEl = document.getElementById('lobby-gamename');
+  if (gameNameEl) gameNameEl.textContent = lobby.gameName || '—';
   document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length}/${lobby.maxPlayers})`;
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
@@ -513,6 +565,8 @@ function renderLobbyScreen(lobby) {
 function renderWaitingScreen(lobby) {
   const notDoneEl = document.getElementById('waiting-notdone');
   if (!notDoneEl) return;
+  const gameNameEl = document.getElementById('waiting-gamename');
+  if (gameNameEl) gameNameEl.textContent = lobby.gameName || '—';
   const notDone = lobby.players.filter(p => !p.dossierDone);
   const done = lobby.players.filter(p => p.dossierDone);
   document.getElementById('waiting-notdone-card').style.display = notDone.length ? 'block' : 'none';
@@ -718,7 +772,7 @@ async function submitDossierAndWait() {
   // Dossier écht binnen bij de backend — de lokale antwoord-draft heeft
   // geen nut meer (en zou anders bij een volgende hervatting proberen
   // terug te springen naar een dossier dat al lang ingediend is).
-  try { localStorage.removeItem(ANSWERS_STORAGE_KEY); } catch (e) { /* negeren */ }
+  try { localStorage.removeItem(answersStorageKey(Session.gameName, Session.code)); } catch (e) { /* negeren */ }
   go('s-waiting');
 }
 
@@ -2115,35 +2169,46 @@ function launchConfetti() {
 const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join');
 
 // ── Rechtstreeks uitnodigen via link ──────
-// copyInviteCode() deelt een link met ?join=CODE erin, zodat vrienden de
-// code niet zelf moeten overtypen — enkel hun naam invullen en op
-// "Meedoen" tikken.
+// copyInviteCode() deelt een link met ?join=CODE&spel=NAAM erin, zodat
+// vrienden de code en spelnaam niet zelf moeten overtypen — enkel hun
+// eigen naam invullen en op "Meedoen" tikken.
 (function prefillJoinFromLink() {
   const url = new URL(window.location.href);
   const joinCode = url.searchParams.get('join');
   if (!joinCode) return;
+  const joinGameName = url.searchParams.get('spel') || '';
   url.searchParams.delete('join');
+  url.searchParams.delete('spel');
   window.history.replaceState({}, '', url.toString());
   go('s-join');
   const codeInput = document.getElementById('join-code');
   if (codeInput) codeInput.value = joinCode.toUpperCase();
+  const gameNameInput = document.getElementById('join-gamename');
+  if (gameNameInput) gameNameInput.value = joinGameName;
   const nameInput = document.getElementById('join-name');
   if (nameInput) nameInput.focus();
 })();
 
 // ── Lokale sessieherstel (localStorage) ───
-// Toont het "Welkom terug"-scherm als er nog een niet-afgesloten sessie
-// in localStorage staat — bv. na het per ongeluk sluiten van het
-// tabblad. Een vers uitnodigingslinkje heeft voorrang op dit oudere,
-// lokaal onthouden spel.
+// Toont het "Welkom terug"-scherm, voorgevuld met de meest recent
+// gebruikte sessie, als er nog een niet-afgesloten sessie in localStorage
+// staat — bv. na het per ongeluk sluiten van het tabblad. Een vers
+// uitnodigingslinkje heeft voorrang op dit oudere, lokaal onthouden spel.
+// De voorgevulde velden blijven aanpasbaar, zodat dit ook werkt wanneer
+// iemand bewust wil terugkeren naar een ANDER, ouder opgeslagen spel.
 (function checkLocalSessionOnLoad() {
   if (hadJoinLinkOnLoad) return;
+  let ptr;
+  try { ptr = JSON.parse(localStorage.getItem(LAST_SESSION_POINTER_KEY) || 'null'); } catch (e) { ptr = null; }
+  if (!ptr || !ptr.gameName || !ptr.code) return;
   let saved;
-  try { saved = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); } catch (e) { saved = null; }
-  if (!saved || !saved.name || !saved.code) return;
-  const nameEl = document.getElementById('resume-name');
-  const codeEl = document.getElementById('resume-code');
-  if (nameEl) nameEl.textContent = saved.name;
-  if (codeEl) codeEl.textContent = saved.code;
+  try { saved = JSON.parse(localStorage.getItem(sessionStorageKey(ptr.gameName, ptr.code)) || 'null'); } catch (e) { saved = null; }
+  if (!saved || !saved.name) return;
+  const nameInput = document.getElementById('resume-name-input');
+  const gameNameInput = document.getElementById('resume-gamename-input');
+  const codeInput = document.getElementById('resume-code-input');
+  if (nameInput) nameInput.value = saved.name;
+  if (gameNameInput) gameNameInput.value = saved.gameName;
+  if (codeInput) codeInput.value = saved.code;
   go('s-resume');
 })();

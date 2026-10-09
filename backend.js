@@ -41,6 +41,13 @@ function makeLobbyCode() {
 
 function makeId() { return Math.random().toString(36).slice(2, 10); }
 
+// Spelnamen worden herkenbaar maar niet kieskeurig vergeleken — een
+// speler die "vrijdagavond bij lien" intikt moet nog steeds matchen met
+// een lobby die als "Vrijdagavond bij Lien" is aangemaakt.
+function gameNamesMatch(a, b) {
+  return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+}
+
 function newPlayer(id, name, index) {
   const av = avatarFor(index);
   return { id, name, color: av.color, bg: av.bg, letter: name.trim()[0].toUpperCase(), dossierDone: false, dossierAnswers: {}, score: 0 };
@@ -82,11 +89,11 @@ class LocalBackend {
     return lobby;
   }
 
-  async createLobby(hostName, maxPlayers) {
+  async createLobby(hostName, maxPlayers, gameName) {
     const code = makeLobbyCode();
     const playerId = makeId();
     const lobby = {
-      code, hostId: playerId, maxPlayers,
+      code, hostId: playerId, maxPlayers, gameName,
       phase: 'lobby', round: 0,
       players: [newPlayer(playerId, hostName, 0)],
       createdAt: Date.now(),
@@ -95,9 +102,10 @@ class LocalBackend {
     return { code, playerId };
   }
 
-  async joinLobby(code, name) {
+  async joinLobby(code, name, gameName) {
     const lobby = this._read(code);
     if (!lobby) throw new Error('Lobby niet gevonden. Klopt de code?');
+    if (!gameNamesMatch(lobby.gameName, gameName)) throw new Error('Spelnaam komt niet overeen met deze lobby. Vraag de host om de juiste naam.');
     if (lobby.players.length >= lobby.maxPlayers) throw new Error('Deze lobby is al vol.');
     const playerId = makeId();
     lobby.players.push(newPlayer(playerId, name, lobby.players.length));
@@ -156,12 +164,12 @@ class FirebaseBackend {
   async _doc(code) { await this._ready; return this.fs.doc(this.db, 'lobbies', code); }
   async _voiceDoc(code, playerId) { await this._ready; return this.fs.doc(this.db, 'lobbies', code, 'voices', playerId); }
 
-  async createLobby(hostName, maxPlayers) {
+  async createLobby(hostName, maxPlayers, gameName) {
     await this._ready;
     const code = makeLobbyCode();
     const playerId = makeId();
     const lobby = {
-      code, hostId: playerId, maxPlayers,
+      code, hostId: playerId, maxPlayers, gameName,
       phase: 'lobby', round: 0,
       players: [newPlayer(playerId, hostName, 0)],
       createdAt: Date.now(),
@@ -170,7 +178,7 @@ class FirebaseBackend {
     return { code, playerId };
   }
 
-  async joinLobby(code, name) {
+  async joinLobby(code, name, gameName) {
     await this._ready;
     const ref = this.fs.doc(this.db, 'lobbies', code);
     const playerId = makeId();
@@ -178,6 +186,7 @@ class FirebaseBackend {
       const snap = await transaction.get(ref);
       if (!snap.exists()) throw new Error('Lobby niet gevonden. Klopt de code?');
       const lobby = snap.data();
+      if (!gameNamesMatch(lobby.gameName, gameName)) throw new Error('Spelnaam komt niet overeen met deze lobby. Vraag de host om de juiste naam.');
       if (lobby.players.length >= lobby.maxPlayers) throw new Error('Deze lobby is al vol.');
       lobby.players.push(newPlayer(playerId, name, lobby.players.length));
       transaction.set(ref, lobby);

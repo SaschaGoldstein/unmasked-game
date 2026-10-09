@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=36" />
+  <link rel="stylesheet" href="style.css?v=37" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -33,10 +33,17 @@
 
   <!-- WELKOM TERUG (lokale sessieherstel) -->
   <div class="screen" id="s-resume">
-    <div class="screen-inner centered">
+    <div class="screen-inner">
       <span class="round-intro-icon">👋</span>
-      <div class="section-title">Welkom terug, <span id="resume-name">daar</span>!</div>
-      <div class="section-sub">Wil je verdergaan met lobby <strong id="resume-code">—</strong>?</div>
+      <div class="section-title">Welkom terug!</div>
+      <div class="section-sub">Klopt dit nog? Vul zo nodig aan en ga verder, of start een nieuwe sessie.</div>
+      <label>Jouw naam</label>
+      <input type="text" placeholder="bijv. Sander" id="resume-name-input" />
+      <label>Spelnaam</label>
+      <input type="text" placeholder="bijv. Vrijdagavond bij Lien" id="resume-gamename-input" />
+      <label>Lobby-code</label>
+      <input type="text" placeholder="bijv. UM-47" class="code-input" id="resume-code-input" />
+      <div class="label-sm" id="resume-error" style="color:var(--red);display:none;margin-top:8px;"></div>
       <button class="btn amber" style="margin-top:28px;" onclick="resumeSession()">Ja, verdergaan →</button>
       <button class="btn ghost" onclick="startFreshSession()">Nieuwe sessie starten</button>
     </div>
@@ -50,6 +57,8 @@
       <div class="section-sub">Vul je naam in en stuur de link naar je groep. Geen download vereist voor je vrienden.</div>
       <label>Jouw naam</label>
       <input type="text" placeholder="bijv. Sander" id="create-name" />
+      <label>Spelnaam</label>
+      <input type="text" placeholder="bijv. Vrijdagavond bij Lien" id="create-gamename" />
       <label>Aantal spelers</label>
       <input type="number" min="2" value="6" id="create-maxplayers" />
       <div class="label-sm" id="create-error" style="color:var(--red);display:none;margin-top:8px;"></div>
@@ -64,6 +73,7 @@
       <div class="section-title">Lobby actief!</div>
       <div class="section-sub">Stuur de link naar je groep — die opent meteen het "Meedoen"-scherm met de code al ingevuld. Geen account, geen download.</div>
       <div class="code-box">
+        <div class="code-hint" id="lobby-gamename" style="margin-bottom:4px;">—</div>
         <div class="code-big" id="lobby-code-big">—</div>
         <div class="code-hint">Deel deze code met je groep</div>
       </div>
@@ -86,6 +96,8 @@
       <div class="section-sub">Vul je naam in en voer de code in die de host je heeft gestuurd.</div>
       <label>Jouw naam</label>
       <input type="text" placeholder="bijv. Emma" id="join-name" />
+      <label>Spelnaam</label>
+      <input type="text" placeholder="bijv. Vrijdagavond bij Lien" id="join-gamename" />
       <label>Lobby-code</label>
       <input type="text" placeholder="bijv. UM-47" class="code-input" id="join-code" />
       <div class="label-sm" id="join-error" style="color:var(--red);display:none;margin-top:8px;"></div>
@@ -175,6 +187,7 @@
     <div class="screen-inner centered">
       <span class="waiting-big waiting-pulse">⏳</span>
       <div class="waiting-title">Dossier ingediend!</div>
+      <div class="label-sm" id="waiting-gamename" style="margin-bottom:4px;">—</div>
       <div class="waiting-sub">Wacht tot iedereen klaar is <span class="waiting-dots"><span></span><span></span><span></span></span> De host start het spel wanneer de groep volledig is.</div>
       <div class="card" id="waiting-notdone-card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><div id="waiting-notdone"></div></div>
       <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="waiting-donecount">Klaar (0/0)</div><div class="card-sub" id="waiting-donelist"></div></div>
@@ -524,10 +537,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=36"></script>
-<script src="backend.js?v=36"></script>
-<script src="youtube-config.js?v=36"></script>
-<script src="youtube.js?v=36"></script>
-<script src="script.js?v=36"></script>
+<script src="firebase-config.js?v=37"></script>
+<script src="backend.js?v=37"></script>
+<script src="youtube-config.js?v=37"></script>
+<script src="youtube.js?v=37"></script>
+<script src="script.js?v=37"></script>
 </body>
 </html>

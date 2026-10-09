@@ -520,15 +520,24 @@ function buildInviteUrl() {
   return url.toString();
 }
 
+// Bare link (zonder ?join=/?spel=) voor de deelbare teaser-tekst hieronder
+// — die tekst toont code en spelnaam al leesbaar, dus de link hoeft hier
+// niet ook nog een snelkoppeling te zijn zoals bij buildInviteUrl().
+function buildPlainGameUrl() {
+  const url = new URL(window.location.href);
+  url.search = '';
+  return url.toString();
+}
+
 function copyInviteCode() {
-  const url = buildInviteUrl();
-  if (!url) return;
-  navigator.clipboard?.writeText(url).catch(() => {});
+  if (!Session.code || !Session.gameName) return;
+  const message = `👀 Hoeveel weet jij écht over de mensen om je heen?\n\n${Session.gameName} — kom het ontdekken.\n👉 ${buildPlainGameUrl()}\n\nCode: ${Session.code}`;
+  navigator.clipboard?.writeText(message).catch(() => {});
   const btn = document.getElementById('copy-invite-btn');
   if (btn) {
     const original = btn.textContent;
-    btn.textContent = '✓ Gekopieerd!';
-    setTimeout(() => { btn.textContent = original; }, 1500);
+    btn.textContent = 'Gekopieerd! ✓';
+    setTimeout(() => { btn.textContent = original; }, 2000);
   }
 }
 

@@ -97,6 +97,11 @@ const PLAYER_PARTY_QUESTION_COUNT = 12;
 // (anders duurt een ronde met bv. 20 spelers veel te lang).
 const MIN_PLAYERS = 2;
 const ROUND_ITEM_CAP = 10;
+// Geen maximum dat de host zelf moet kiezen — maakt in de praktijk niets
+// uit (zie boven), dus lobby.maxPlayers is enkel nog een technisch
+// plafond ver boven wat ooit haalbaar is, puur om de bestaande
+// "is deze lobby vol?"-check in backend.js niet te moeten aanpassen.
+const DEFAULT_MAX_PLAYERS = 999;
 
 const CONFESSION_Q = 'Beken hier iets kleins (een leugentje, iets stiekems, een onschuldig grensgeval):';
 const SONG_Q = 'Mijn lievelingsnummer is (artiest - titel):';
@@ -414,6 +419,11 @@ const PHASE_SYNC = {
 };
 
 function syncToLobbyPhase(lobby) {
+  // Onderdrukt terwijl de host de read-only geschiedenis-viewer open
+  // heeft staan (zie hieronder) — anders zou elke binnenkomende
+  // snapshot (bv. een gok van een andere speler, heel normaal tijdens
+  // een ronde) de host daar meteen weer uit duwen naar het live scherm.
+  if (historyViewerOpen) return;
   const sync = PHASE_SYNC[lobby.phase];
   if (!sync) return;
   const activeEl = document.querySelector('.screen.active');
@@ -425,24 +435,85 @@ function syncToLobbyPhase(lobby) {
   if (targetIdx > curIdx) sync.action();
 }
 
+function renderAllScreens(lobby) {
+  renderLobbyScreen(lobby);
+  renderWaitingScreen(lobby);
+  renderRound1Intro(lobby);
+  renderQuickFire(lobby);
+  renderRound2Intro(lobby);
+  renderPhotoRound(lobby);
+  renderHotOrNot(lobby);
+  renderVerhoor(lobby);
+  renderBiecht(lobby);
+  renderRound4Intro(lobby);
+  renderSoundtrack(lobby);
+  renderRound5Intro(lobby);
+}
+
 function subscribeLobby() {
   if (Session.unsub) Session.unsub();
   Session.unsub = Backend.subscribe(Session.code, (lobby) => {
     latestLobby = lobby;
     syncToLobbyPhase(lobby);
-    renderLobbyScreen(lobby);
-    renderWaitingScreen(lobby);
-    renderRound1Intro(lobby);
-    renderQuickFire(lobby);
-    renderRound2Intro(lobby);
-    renderPhotoRound(lobby);
-    renderHotOrNot(lobby);
-    renderVerhoor(lobby);
-    renderBiecht(lobby);
-    renderRound4Intro(lobby);
-    renderSoundtrack(lobby);
-    renderRound5Intro(lobby);
+    renderAllScreens(lobby);
   });
+}
+
+// ── Host: eerdere vragen/items herbekijken (read-only) ────────────────
+// Puur lokaal op het toestel van de host — wijzigt niets aan de
+// gedeelde lobby-staat, dus andere spelers merken hier niets van en er
+// kan niets meer gegokt of gescoord worden op een teruggekeken item.
+// Elke ronde legt bij het onthullen van een item een klein, leesbaar
+// momentopname-object vast (zie *History-arrays verderop) vóór de
+// echte lobby-staat naar het volgende item doorschuift en die data
+// overschrijft. HISTORY_VIEWERS registreert per ronde-sleutel hoe zo'n
+// momentopname getoond moet worden.
+let historyViewerOpen = false;
+const HISTORY_VIEWERS = {};
+let historyViewerState = { key: null, index: 0 };
+
+function registerHistoryViewer(key, title, getHistory, renderItem) {
+  HISTORY_VIEWERS[key] = { title, getHistory, renderItem };
+}
+
+function renderHistoryViewerCurrent() {
+  const viewer = HISTORY_VIEWERS[historyViewerState.key];
+  const history = viewer.getHistory();
+  const idx = Math.min(historyViewerState.index, history.length - 1);
+  historyViewerState.index = idx;
+  const item = history[idx];
+  document.getElementById('history-title').textContent = viewer.title;
+  document.getElementById('history-position').textContent = `${idx + 1} van ${history.length}`;
+  document.getElementById('history-body').innerHTML = viewer.renderItem(item);
+  document.getElementById('history-prev-btn').disabled = idx <= 0;
+  document.getElementById('history-next-btn').disabled = idx >= history.length - 1;
+}
+
+function openHistoryViewer(key) {
+  const viewer = HISTORY_VIEWERS[key];
+  const history = viewer && viewer.getHistory();
+  if (!history || !history.length) return;
+  historyViewerOpen = true;
+  historyViewerState = { key, index: history.length - 1 };
+  renderHistoryViewerCurrent();
+  go('s-history');
+}
+
+function historyViewerPrev() {
+  if (historyViewerState.index > 0) { historyViewerState.index--; renderHistoryViewerCurrent(); }
+}
+
+function historyViewerNext() {
+  const viewer = HISTORY_VIEWERS[historyViewerState.key];
+  if (historyViewerState.index < viewer.getHistory().length - 1) { historyViewerState.index++; renderHistoryViewerCurrent(); }
+}
+
+function closeHistoryViewer() {
+  historyViewerOpen = false;
+  if (!latestLobby) { go('s-home'); return; }
+  const sync = PHASE_SYNC[latestLobby.phase];
+  go(sync ? sync.screen : 's-waiting');
+  renderAllScreens(latestLobby);
 }
 
 // Zonder deze wacht-vlag kon een dubbele tik op "Lobby aanmaken"/
@@ -460,17 +531,15 @@ async function createLobbyClick() {
   if (createLobbyInFlight) return;
   const name = document.getElementById('create-name').value.trim();
   const gameName = document.getElementById('create-gamename').value.trim();
-  const maxPlayers = parseInt(document.getElementById('create-maxplayers').value, 10) || 6;
   const errEl = document.getElementById('create-error');
   errEl.style.display = 'none';
   if (!name) { errEl.textContent = 'Vul je naam in.'; errEl.style.display = 'block'; return; }
   if (!gameName) { errEl.textContent = 'Vul een spelnaam in (bv. "Vrijdagavond bij Lien").'; errEl.style.display = 'block'; return; }
-  if (maxPlayers < MIN_PLAYERS) { errEl.textContent = `Minimum ${MIN_PLAYERS} spelers.`; errEl.style.display = 'block'; return; }
   createLobbyInFlight = true;
   const btn = document.getElementById('create-lobby-btn');
   if (btn) btn.disabled = true;
   try {
-    const { code, playerId } = await Backend.createLobby(name, maxPlayers, gameName);
+    const { code, playerId } = await Backend.createLobby(name, DEFAULT_MAX_PLAYERS, gameName);
     Session.code = code; Session.playerId = playerId; Session.isHost = true;
     saveLocalSession(name, gameName);
     subscribeLobby();
@@ -562,7 +631,7 @@ function renderLobbyScreen(lobby) {
   codeEl.textContent = lobby.code;
   const gameNameEl = document.getElementById('lobby-gamename');
   if (gameNameEl) gameNameEl.textContent = lobby.gameName || '—';
-  document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length}/${lobby.maxPlayers})`;
+  document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length})`;
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
       <div class="avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div>
@@ -796,6 +865,15 @@ let lastRenderedQFIndex = -1;
 let lastFlashedQFIndex = -1;
 let qfNextBtnReady = {};
 let qfOptionsCache = [];
+let qfHistory = [];
+
+registerHistoryViewer('quickfire', 'Vorige vraag', () => qfHistory, (item) => `
+  <div class="card">
+    <div class="card-title">${item.label}</div>
+    <div class="card-sub" style="margin-bottom:10px;">"${item.answerText}" — van ${item.correctPlayer}</div>
+    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+  </div>
+`);
 
 function renderRound1Intro(lobby) {
   const introScreen = document.getElementById('s-round1-intro');
@@ -805,6 +883,7 @@ function renderRound1Intro(lobby) {
 }
 
 async function hostStartRound1() {
+  qfHistory = [];
   const picked = pickSessionQuestions();
   const quickfire = { questions: picked.questions, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setQuickfire(Session.code, quickfire));
@@ -822,6 +901,7 @@ function renderQuickFire(lobby) {
   document.getElementById('r1-progress').style.width = Math.round(((qf.index + 1) / qf.questions.length) * 100) + '%';
   document.getElementById('r1-qlabel').textContent = q.label;
   document.getElementById('r1-qanswer').textContent = '"' + q.answerText + '"';
+  document.getElementById('r1-history-btn').style.display = (Session.isHost && qfHistory.length) ? 'block' : 'none';
 
   if (qf.index !== lastRenderedQFIndex) {
     lastRenderedQFIndex = qf.index;
@@ -866,6 +946,21 @@ function renderQuickFire(lobby) {
       // iedereen de tijd heeft om het resultaat te lezen in plaats van
       // meteen door te moeten klikken.
       setTimeout(() => { qfNextBtnReady[qf.index] = true; renderQuickFire(latestLobby); }, NEXT_BTN_DELAY_MS);
+      // Vastleggen vóór "Volgende vraag" deze qf.answers alweer leegmaakt
+      // — zie openHistoryViewer('quickfire') hierboven.
+      qfHistory.push({
+        label: q.label,
+        answerText: q.answerText,
+        correctPlayer: q.correctPlayer,
+        guesses: Object.entries(qf.answers || {}).map(([voterId, a]) => {
+          const voter = lobby.players.find(p => p.id === voterId);
+          // Een gok op je eigen antwoord telt nooit als "juist" (zie
+          // revealQuickfire in backend.js) — dat moet de geschiedenis ook
+          // zo tonen, anders lijkt het alsof die gok had kunnen scoren.
+          const correct = a.guess === q.correctPlayer && (!voter || voter.name !== q.correctPlayer);
+          return { name: voter ? voter.name : '?', guess: a.guess, correct };
+        }),
+      });
     }
     const correctVoters = Object.entries(qf.answers || {}).filter(([, a]) => a.guess === q.correctPlayer).map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
     document.getElementById('r1-reveal-card').innerHTML = `
@@ -967,6 +1062,15 @@ let lastRenderedPhotoIndex = -1;
 let lastFlashedPhotoIndex = -1;
 let photoNextBtnReady = {};
 let photoOptionsCache = [];
+let photoHistory = [];
+
+registerHistoryViewer('photoRound', 'Vorige foto', () => photoHistory, (item) => `
+  <div class="card">
+    ${item.photo ? `<div style="width:100%;height:220px;border-radius:12px;background-image:url(${item.photo});background-size:cover;background-position:center;margin-bottom:10px;"></div>` : `<div style="font-size:48px;text-align:center;margin-bottom:10px;">${item.emoji || '🙂'}</div>`}
+    <div class="card-title">${item.player}</div>
+    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ` ✓ (+${g.pts})` : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+  </div>
+`);
 
 function renderRound2Intro(lobby) {
   const introScreen = document.getElementById('s-round2-intro');
@@ -992,6 +1096,7 @@ function pickRound2Photos() {
 }
 
 async function hostStartRound2() {
+  photoHistory = [];
   const picked = pickRound2Photos();
   const photoRound = { photos: picked.photos, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setPhotoRound(Session.code, photoRound));
@@ -1008,6 +1113,7 @@ function renderPhotoRound(lobby) {
   const photoEl = document.getElementById('r2-photo');
   document.getElementById('r2-qnum').textContent = `Foto ${pr.index + 1} van ${pr.photos.length}`;
   document.getElementById('r2-progress').style.width = Math.round(((pr.index + 1) / pr.photos.length) * 100) + '%';
+  document.getElementById('r2-history-btn').style.display = (Session.isHost && photoHistory.length) ? 'block' : 'none';
 
   if (pr.index !== lastRenderedPhotoIndex) {
     lastRenderedPhotoIndex = pr.index;
@@ -1065,6 +1171,23 @@ function renderPhotoRound(lobby) {
       // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
       // iedereen de tijd heeft om het resultaat te lezen.
       setTimeout(() => { photoNextBtnReady[pr.index] = true; renderPhotoRound(latestLobby); }, NEXT_BTN_DELAY_MS);
+      // Vastleggen vóór "Volgende foto" deze pr.answers alweer leegmaakt —
+      // zie openHistoryViewer('photoRound') hierboven.
+      photoHistory.push({
+        photo: photo.photo, emoji: photo.emoji, player: photo.player,
+        guesses: Object.entries(pr.answers || {}).map(([voterId, a]) => {
+          const voter = lobby.players.find(p => p.id === voterId);
+          // Zelfde uitsluiting als revealPhotoRound in backend.js — een
+          // gok op je eigen foto telt nooit als "juist".
+          const correct = a.guess === photo.player && (!voter || voter.name !== photo.player);
+          let pts = 0;
+          if (correct) {
+            const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
+            pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
+          }
+          return { name: voter ? voter.name : '?', guess: a.guess, correct, pts };
+        }),
+      });
     }
     photoEl.style.transition = 'transform 0.5s ease';
     photoEl.style.transform = 'scale(1)';
@@ -1303,6 +1426,15 @@ let lastSpokenVerhoorIndex = -1;
 let lastFlashedVerhoorIndex = -1;
 let verhoorNextBtnReady = {};
 let verhoorOptionsCache = [];
+let verhoorHistory = [];
+
+registerHistoryViewer('verhoor', 'Vorige bekentenis', () => verhoorHistory, (item) => `
+  <div class="card">
+    <div class="card-sub" style="margin-bottom:10px;">${item.text}</div>
+    <div class="card-title">${item.confessorName}${item.caught ? ' (-3 punten)' : ''}</div>
+    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+  </div>
+`);
 
 function pickRound3Confessions() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
@@ -1330,6 +1462,7 @@ function speakConfession(text) {
 }
 
 async function hostStartVerhoor() {
+  verhoorHistory = [];
   const picked = pickRound3Confessions();
   const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setVerhoor(Session.code, verhoor));
@@ -1348,6 +1481,7 @@ function renderVerhoor(lobby) {
   document.getElementById('r3-qnum').textContent = `Bekentenis ${v.index + 1} van ${v.list.length}`;
   document.getElementById('r3-progress').style.width = Math.round(((v.index + 1) / v.list.length) * 100) + '%';
   document.getElementById('r3-confession').textContent = q.text;
+  document.getElementById('r3-history-btn').style.display = (Session.isHost && verhoorHistory.length) ? 'block' : 'none';
 
   if (v.index !== lastSpokenVerhoorIndex) {
     lastSpokenVerhoorIndex = v.index;
@@ -1390,6 +1524,21 @@ function renderVerhoor(lobby) {
       // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
       // iedereen de tijd heeft om het resultaat te lezen.
       setTimeout(() => { verhoorNextBtnReady[v.index] = true; renderVerhoor(latestLobby); }, NEXT_BTN_DELAY_MS);
+      // Vastleggen vóór "Volgende bekentenis" deze v.answers alweer
+      // leegmaakt — zie openHistoryViewer('verhoor') hierboven.
+      verhoorHistory.push({
+        text: q.text,
+        confessorName: (v.players.find(p => p.id === q.playerId) || {}).name || '?',
+        caught: Object.entries(v.answers || {}).some(([voterId, a]) => voterId !== q.playerId && a.guess === q.playerId),
+        guesses: Object.entries(v.answers || {}).map(([voterId, a]) => {
+          const voter = v.players.find(p => p.id === voterId);
+          const guessedPlayer = v.players.find(p => p.id === a.guess);
+          // Zelfde uitsluiting als revealVerhoor in backend.js — je kan
+          // jezelf niet "ontmaskeren".
+          const correct = a.guess === q.playerId && voterId !== q.playerId;
+          return { name: voter ? voter.name : '?', guess: guessedPlayer ? guessedPlayer.name : '?', correct };
+        }),
+      });
     }
     const confessor = v.players.find(p => p.id === q.playerId);
     const correctVoters = Object.entries(v.answers || {}).filter(([voterId, a]) => voterId !== q.playerId && a.guess === q.playerId).map(([voterId]) => v.players.find(p => p.id === voterId)).filter(Boolean);
@@ -1488,6 +1637,7 @@ function renderRound4Intro(lobby) {
 }
 
 async function hostStartRound4() {
+  soundtrackHistory = [];
   const soundtrack = await pickSoundtrack();
   if (!soundtrack) {
     // Niemand vulde een lievelingsnummer in — er is niets om te raden.
@@ -1541,6 +1691,16 @@ function showScoreR4() {
 let lastRenderedSoundtrackIndex = -1;
 let soundtrackPlayedForIndex = -1;
 let soundtrackOptionsCache = [];
+let soundtrackHistory = [];
+
+registerHistoryViewer('soundtrack', 'Vorig nummer', () => soundtrackHistory, (item) => `
+  <div class="card">
+    <div class="card-title">${item.trackName}${item.artist ? ' — ' + item.artist : ''}</div>
+    <div class="card-sub" style="margin-bottom:10px;">Eigenaar: ${item.owner}${item.drink ? ` · Drankje: ${item.drink}` : ''}</div>
+    ${item.ownerGuesses.length ? item.ownerGuesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte de eigenaar.</div>'}
+    ${item.drinkGuesses.length ? `<div class="label-sm" style="margin-top:8px;">Drankje-gokken:</div>` + item.drinkGuesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : ''}
+  </div>
+`);
 
 function buildDrinkOptions(list, index) {
   const correct = list[index];
@@ -1579,6 +1739,7 @@ function renderSoundtrack(lobby) {
   }
   document.getElementById('st-qnum').textContent = `Nummer ${st.index + 1} van ${st.list.length}`;
   document.getElementById('st-progress').style.width = Math.round(((st.index + 1) / st.list.length) * 100) + '%';
+  document.getElementById('st-history-btn').style.display = (Session.isHost && soundtrackHistory.length) ? 'block' : 'none';
   document.getElementById('st-host-player').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('st-guest-wait').style.display = Session.isHost ? 'none' : 'block';
   const alreadyPlayed = soundtrackPlayedForIndex === st.index;
@@ -1691,6 +1852,29 @@ async function hostNextSoundtrack() {
   try {
     const st = latestLobby.soundtrack;
     await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, st.index));
+    // Vastleggen vóór de index hieronder doorschuift en ownerAnswers/
+    // drinkAnswers alweer leegmaakt — zie openHistoryViewer('soundtrack')
+    // hierboven. Op dit moment zijn beide gok-rondes (eigenaar + drankje)
+    // voor dit nummer al afgesloten.
+    const track = st.list[st.index];
+    const owner = st.players.find(p => p.id === track.playerId);
+    soundtrackHistory.push({
+      trackName: track.trackName, artist: track.artist,
+      owner: owner ? owner.name : '?', drink: track.drink || '',
+      ownerGuesses: Object.entries(st.ownerAnswers || {}).map(([voterId, a]) => {
+        const voter = st.players.find(p => p.id === voterId);
+        const guessedPlayer = st.players.find(p => p.id === a.guess);
+        // Zelfde uitsluiting als revealSoundtrackOwner/-Drink in backend.js
+        // — een gok op je eigen nummer/drankje telt nooit als "juist".
+        const correct = a.guess === track.playerId && voterId !== track.playerId;
+        return { name: voter ? voter.name : '?', guess: guessedPlayer ? guessedPlayer.name : '?', correct };
+      }),
+      drinkGuesses: Object.entries(st.drinkAnswers || {}).map(([voterId, guess]) => {
+        const voter = st.players.find(p => p.id === voterId);
+        const correct = !!track.drink && guess === track.drink && voterId !== track.playerId;
+        return { name: voter ? voter.name : '?', guess, correct };
+      }),
+    });
     if (typeof stopYouTubePlayback === 'function') stopYouTubePlayback();
     const nextIndex = st.index + 1;
     if (nextIndex >= st.list.length) {
@@ -1716,6 +1900,30 @@ let rawRecordingBlob = null;
 let distortedVoiceDataUrl = null;
 let lastRenderedBiechtKey = '';
 let biechtOptionsCache = [];
+let biechtHistory = [];
+let biechtHistoryPushedFor = -1;
+
+registerHistoryViewer('biecht', 'Vorig verhaal', () => biechtHistory, (item) => `
+  <div class="card">
+    <div class="card-title">${item.tellerName}</div>
+    <audio id="history-replay-audio" controls style="width:100%;margin:10px 0;"></audio>
+    <button class="btn secondary" id="history-replay-btn" onclick="replayBiechtHistoryAudio('${item.targetId}')">▶ Beluister opnieuw</button>
+    <div style="margin-top:10px;">
+      ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+    </div>
+  </div>
+`);
+
+async function replayBiechtHistoryAudio(targetId) {
+  const audioEl = document.getElementById('history-replay-audio');
+  const btn = document.getElementById('history-replay-btn');
+  if (!audioEl) return;
+  if (btn) btn.textContent = 'Laden...';
+  const url = await Backend.getVoice(Session.code, targetId);
+  audioEl.src = url;
+  audioEl.play().catch(() => { /* autoplay kan geblokkeerd zijn — bedieningselementen blijven beschikbaar */ });
+  if (btn) btn.textContent = '▶ Opnieuw afspelen';
+}
 let selectedVoiceStyle = 'low';
 // Recording itself has no fixed cap — stop whenever you're done. This
 // ceiling only exists so a single voice clip can never grow past what
@@ -1936,6 +2144,8 @@ function renderRound5Intro(lobby) {
 }
 
 async function hostStartBiechtPlayback() {
+  biechtHistory = [];
+  biechtHistoryPushedFor = -1;
   const order = shuffle(latestLobby.players.filter(p => p.voiceReady).map(p => p.id)).slice(0, ROUND_ITEM_CAP);
   if (order.length === 0) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round5-final'));
@@ -1957,6 +2167,7 @@ async function renderBiecht(lobby) {
     const targetId = b.order[b.index];
     const key = 'play:' + targetId;
     document.getElementById('biecht-play-num').textContent = `Verhaal ${b.index + 1} van ${b.order.length}`;
+    document.getElementById('biecht-history-btn').style.display = (Session.isHost && biechtHistory.length) ? 'block' : 'none';
     if (key !== lastRenderedBiechtKey) {
       lastRenderedBiechtKey = key;
       const audioEl = document.getElementById('biecht-play-audio');
@@ -1997,6 +2208,25 @@ async function renderBiecht(lobby) {
     const nextBtn = document.getElementById('biecht-play-next-btn');
     if (b.revealed) {
       const teller = lobby.players.find(p => p.id === targetId);
+      if (biechtHistoryPushedFor !== b.index) {
+        biechtHistoryPushedFor = b.index;
+        // Vastleggen vóór "Volgende verhaal" deze b.answers alweer
+        // leegmaakt — zie openHistoryViewer('biecht') hierboven. De
+        // opname zelf blijft wel bewaard in de backend (apart van
+        // lobby.biecht), dus die wordt lazy herladen bij het bekijken.
+        biechtHistory.push({
+          targetId,
+          tellerName: teller ? teller.name : '?',
+          guesses: Object.entries(b.answers || {}).map(([voterId, a]) => {
+            const voter = lobby.players.find(p => p.id === voterId);
+            const guessedPlayer = lobby.players.find(p => p.id === a.guess);
+            // Zelfde uitsluiting als revealBiechtStory in backend.js — een
+            // gok op je eigen verhaal telt nooit als "juist".
+            const correct = a.guess === targetId && voterId !== targetId;
+            return { name: voter ? voter.name : '?', guess: guessedPlayer ? guessedPlayer.name : '?', correct };
+          }),
+        });
+      }
       const correctVoters = Object.entries(b.answers || {})
         .filter(([voterId, a]) => voterId !== targetId && a.guess === targetId)
         .map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);

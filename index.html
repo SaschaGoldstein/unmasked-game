@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=38" />
+  <link rel="stylesheet" href="style.css?v=39" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -59,8 +59,6 @@
       <input type="text" placeholder="bijv. Sander" id="create-name" />
       <label>Spelnaam</label>
       <input type="text" placeholder="bijv. Vrijdagavond bij Lien" id="create-gamename" />
-      <label>Aantal spelers</label>
-      <input type="number" min="2" value="6" id="create-maxplayers" />
       <div class="label-sm" id="create-error" style="color:var(--red);display:none;margin-top:8px;"></div>
       <button class="btn amber" id="create-lobby-btn" style="margin-top:28px;" onclick="createLobbyClick()">Lobby aanmaken →</button>
     </div>
@@ -226,6 +224,7 @@
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="r1-progress" style="width:12%"></div></div>
       <div class="label-sm" id="r1-qnum">Vraag 1 van 8</div>
+      <button class="btn ghost" id="r1-history-btn" style="display:none;margin:4px 0;padding:6px 0;" onclick="openHistoryViewer('quickfire')">← Vorige vragen bekijken</button>
       <div class="label-sm" id="r1-qlabel" style="margin-bottom:4px;"></div>
       <div class="qf-answer" id="r1-qanswer"></div>
       <div class="timer-ring" id="r1-timer-ring">
@@ -283,6 +282,7 @@
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="r2-progress" style="width:17%"></div></div>
       <div class="label-sm" id="r2-qnum">Foto 1 van 6</div>
+      <button class="btn ghost" id="r2-history-btn" style="display:none;margin:4px 0;padding:6px 0;" onclick="openHistoryViewer('photoRound')">← Vorige foto's bekijken</button>
       <div class="zoom-hint" id="r2-zoom-hint">Foto zoomt uit... raad wie het is!</div>
       <div class="photo-stage">
         <div class="photo-emoji" id="r2-photo">🧑</div>
@@ -366,6 +366,7 @@
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="r3-progress" style="width:20%"></div></div>
       <div class="label-sm" id="r3-qnum">Bekentenis 1 van 5</div>
+      <button class="btn ghost" id="r3-history-btn" style="display:none;margin:4px 0;padding:6px 0;" onclick="openHistoryViewer('verhoor')">← Vorige bekentenissen bekijken</button>
       <div class="suspect-card">
         <div class="suspect-emoji">🤐</div>
         <div class="suspect-confession" id="r3-confession"></div>
@@ -431,6 +432,7 @@
     <div class="screen-inner" style="padding-top:16px;">
       <div class="progress-bar"><div class="progress-fill" id="st-progress" style="width:20%"></div></div>
       <div class="label-sm" id="st-qnum">Nummer 1 van 4</div>
+      <button class="btn ghost" id="st-history-btn" style="display:none;margin:4px 0;padding:6px 0;" onclick="openHistoryViewer('soundtrack')">← Vorige nummers bekijken</button>
       <div class="suspect-card" id="st-host-player" style="display:none;">
         <div id="st-embed"></div>
       </div>
@@ -491,6 +493,7 @@
     </div>
     <div class="screen-inner" style="padding-top:16px;">
       <div class="label-sm" id="biecht-play-num">Verhaal 1 van 4</div>
+      <button class="btn ghost" id="biecht-history-btn" style="display:none;margin:4px 0;padding:6px 0;" onclick="openHistoryViewer('biecht')">← Vorige verhalen bekijken</button>
       <div class="suspect-card">
         <div class="suspect-emoji">🌀</div>
         <div class="suspect-confession" id="biecht-play-hint">Een vervormde stem...</div>
@@ -537,10 +540,24 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=38"></script>
-<script src="backend.js?v=38"></script>
-<script src="youtube-config.js?v=38"></script>
-<script src="youtube.js?v=38"></script>
-<script src="script.js?v=38"></script>
+  <!-- HOST: GESCHIEDENIS BEKIJKEN (read-only, enkel lokaal — andere spelers merken hier niets van) -->
+  <div class="screen" id="s-history">
+    <div class="screen-inner">
+      <button class="back-btn" onclick="closeHistoryViewer()">✕ Sluiten</button>
+      <div class="section-title" id="history-title">Vorige vraag</div>
+      <div class="label-sm" id="history-position" style="margin-bottom:12px;"></div>
+      <div id="history-body"></div>
+      <div style="display:flex;gap:10px;margin-top:auto;padding-top:16px;width:100%;">
+        <button class="btn secondary" style="flex:1;" id="history-prev-btn" onclick="historyViewerPrev()">← Vorige</button>
+        <button class="btn secondary" style="flex:1;" id="history-next-btn" onclick="historyViewerNext()">Volgende →</button>
+      </div>
+    </div>
+  </div>
+
+<script src="firebase-config.js?v=39"></script>
+<script src="backend.js?v=39"></script>
+<script src="youtube-config.js?v=39"></script>
+<script src="youtube.js?v=39"></script>
+<script src="script.js?v=39"></script>
 </body>
 </html>

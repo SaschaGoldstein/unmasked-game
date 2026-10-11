@@ -51,45 +51,56 @@ const CONFESSIONS = [
 // subset van deze bank te zien (zie resetDossierState()), zodat niet
 // iedereen dezelfde vragen beantwoordt — Ronde 1 pakt daarna tot 10 vragen
 // waar genoeg spelers echt op geantwoord hebben (zie pickSessionQuestions()).
-const PARTY_QS = [
-  // Gewoontes & Dagelijks leven
-  'Ik word chagrijnig van:',
-  'Mijn geheime slechte gewoonte is:',
-  'De beste manier om het weekend te beginnen:',
-  'Dit doe ik als eerste als ik thuiskom:',
-  'Hier kan ik absoluut niet mee overweg:',
-  'Mijn vaste slaaphouding is:',
-  'Zo ziet mijn typische zondagochtend eruit:',
-  // Geld & Bezittingen
-  'Ik geef het liefst geld uit aan:',
-  'Mijn meest onnodige aankoop ooit:',
-  'Dit heb ik gekocht en nooit gebruikt:',
-  'Hier heb ik al geld aan besteed zonder het af te maken:',
-  // Digitaal & Social Media
-  'Dit heb ik het laatste gegoogled:',
-  'Dit staat als eerste op mijn startscherm:',
-  'Zo lang kan ik zonder mijn telefoon:',
-  'Mijn meest gebruikte emoji is:',
-  'Dit zijn de mensen die ik op Instagram het meest stalk:',
-  // Persoonlijkheid & Geheimen
-  'Het rare feit over mezelf dat ik normaal verberg:',
-  'Ik heb ooit gelogen over:',
-  'Mijn grootste ongerechtvaardigde schuldgevoel:',
-  'Dit vind ik stiekem heel erg fijn maar durf ik niet toe te geven:',
-  'Iets waar ik stiekem trots op ben maar niemand vertel:',
-  'Dit is mijn meest irrationele angst:',
-  // Relaties & Sociale situaties
-  'Zo reageer ik als iemand mij beledigt:',
-  'Dit soort mensen vermijd ik op feestjes:',
-  'Mijn strategie als ik iemand niet meer wil spreken:',
-  'De meest ongemakkelijke situatie die ik ooit heb meegemaakt:',
-  // Dromen & Ambities
-  'Als ik één dag lang iemand anders kon zijn, dan:',
-  'Dit zou ik doen als ik morgen oneindig veel geld had:',
-  'Het beroep dat ik had gewild als kind:',
-  'Mijn meest onrealistische droom:',
-  'Mijn levensmotto is:',
+// Gecategoriseerd zodat het dossier-overzicht de vragen gegroepeerd kan
+// tonen. PARTY_QS (platte lijst) wordt hieronder afgeleid — de rest van
+// de code (pickSessionQuestions, DEMO_ANSWERS-lookups, ...) blijft die
+// platte vorm gebruiken, categorieën zijn enkel een weergave-detail.
+const PARTY_QUESTION_CATEGORIES = [
+  { name: 'Gewoontes & Dagelijks leven', questions: [
+    'Ik word chagrijnig van:',
+    'Mijn geheime slechte gewoonte is:',
+    'De beste manier om het weekend te beginnen:',
+    'Dit doe ik als eerste als ik thuiskom:',
+    'Hier kan ik absoluut niet mee overweg:',
+    'Mijn vaste slaaphouding is:',
+    'Zo ziet mijn typische zondagochtend eruit:',
+  ]},
+  { name: 'Geld & Bezittingen', questions: [
+    'Ik geef het liefst geld uit aan:',
+    'Mijn meest onnodige aankoop ooit:',
+    'Dit heb ik gekocht en nooit gebruikt:',
+    'Hier heb ik al geld aan besteed zonder het af te maken:',
+  ]},
+  { name: 'Digitaal & Social Media', questions: [
+    'Dit heb ik het laatste gegoogled:',
+    'Dit staat als eerste op mijn startscherm:',
+    'Zo lang kan ik zonder mijn telefoon:',
+    'Mijn meest gebruikte emoji is:',
+    'Dit zijn de mensen die ik op Instagram het meest stalk:',
+  ]},
+  { name: 'Persoonlijkheid & Geheimen', questions: [
+    'Het rare feit over mezelf dat ik normaal verberg:',
+    'Ik heb ooit gelogen over:',
+    'Mijn grootste ongerechtvaardigde schuldgevoel:',
+    'Dit vind ik stiekem heel erg fijn maar durf ik niet toe te geven:',
+    'Iets waar ik stiekem trots op ben maar niemand vertel:',
+    'Dit is mijn meest irrationele angst:',
+  ]},
+  { name: 'Relaties & Sociale situaties', questions: [
+    'Zo reageer ik als iemand mij beledigt:',
+    'Dit soort mensen vermijd ik op feestjes:',
+    'Mijn strategie als ik iemand niet meer wil spreken:',
+    'De meest ongemakkelijke situatie die ik ooit heb meegemaakt:',
+  ]},
+  { name: 'Dromen & Ambities', questions: [
+    'Als ik één dag lang iemand anders kon zijn, dan:',
+    'Dit zou ik doen als ik morgen oneindig veel geld had:',
+    'Het beroep dat ik had gewild als kind:',
+    'Mijn meest onrealistische droom:',
+    'Mijn levensmotto is:',
+  ]},
 ];
+const PARTY_QS = PARTY_QUESTION_CATEGORIES.flatMap(c => c.questions);
 // Hoeveel vragen uit de bank één speler tijdens het dossier te zien krijgt.
 const PLAYER_PARTY_QUESTION_COUNT = 12;
 // Minimum aantal spelers om te kunnen spelen — geen maximum, maar vanaf
@@ -110,7 +121,9 @@ const DRINK_Q = 'Mijn lievelingsdrankje is:';
 // De vragenlijst van de huidige speler tijdens het invullen van het
 // dossier — opnieuw willekeurig samengesteld bij elke resetDossierState().
 let sessionDossierQs = [];
-let dossierQ = 0;
+// Welke vraag in het dossier-overzicht momenteel openstaat (accordion) —
+// de vraagtekst zelf, of null als alles ingeklapt is.
+let dossierExpandedRow = null;
 let pendingPhotoDataUrl = null;
 
 // ── Multiplayer session ───────────────────
@@ -118,7 +131,13 @@ let pendingPhotoDataUrl = null;
 // the current lobby; latestLobby is the most recent snapshot pushed by the
 // backend's subscription, kept fresh regardless of which screen is active.
 
-const Session = { code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {}, gameName: null };
+const Session = {
+  code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {}, gameName: null,
+  // Foto en stem-opname zijn eigen stappen in het dossier-overzicht,
+  // elk met hun eigen "klaar" (bevestigd of bewust overgeslagen) —
+  // zie goDossierPhotoStep()/goDossierVoiceStep() hieronder.
+  photoStepDone: false, voiceStepDone: false,
+};
 let latestLobby = null;
 
 // Ná een eigen schrijfactie renderen we meteen lokaal (optimistic update)
@@ -182,7 +201,7 @@ function leaveGame() {
 const LAST_SESSION_POINTER_KEY = 'unmasked:lastSession';
 
 function sessionStorageKey(gameName, code) { return `unmasked_${gameName}_${code}`; }
-function answersStorageKey(gameName, code) { return `unmasked_antwoorden_${gameName}_${code}`; }
+function answersStorageKey(gameName, code) { return `unmasked_${gameName}_${code}_dossier`; }
 
 function saveLocalSession(name, gameName) {
   Session.gameName = gameName;
@@ -202,7 +221,8 @@ function saveLocalSession(name, gameName) {
 function saveLocalAnswersDraft() {
   try {
     localStorage.setItem(answersStorageKey(Session.gameName, Session.code), JSON.stringify({
-      questions: sessionDossierQs, answers: Session.dossierAnswers, index: dossierQ,
+      questions: sessionDossierQs, answers: Session.dossierAnswers,
+      photoStepDone: Session.photoStepDone, voiceStepDone: Session.voiceStepDone,
     }));
   } catch (e) { /* negeren */ }
 }
@@ -244,17 +264,23 @@ async function resumeSession() {
 
   let draft = null;
   try { draft = JSON.parse(localStorage.getItem(answersStorageKey(gameName, code)) || 'null'); } catch (e) { draft = null; }
-  if (draft && Array.isArray(draft.questions) && draft.questions.length && (draft.index || 0) < draft.questions.length) {
-    // Nog niet klaar met het dossier — spring naar de eerste onbeantwoorde
-    // vraag met exact dezelfde vragenlijst als voorheen.
+  if (draft && Array.isArray(draft.questions) && draft.questions.length) {
+    // Dossier nog niet (volledig) ingediend — de draft wordt pas gewist
+    // bij een geslaagde GameOps.submitDossier (zie submitDossierAndWait),
+    // dus enkel al bestaan betekent hier al "nog niet klaar". Herlaad
+    // alle tot dusver ingevulde antwoorden in het overzicht.
     sessionDossierQs = draft.questions;
     Session.dossierAnswers = draft.answers || {};
-    dossierQ = draft.index || 0;
-    renderCurrentDossierQuestion();
+    Session.photoStepDone = !!draft.photoStepDone;
+    Session.voiceStepDone = !!draft.voiceStepDone;
+    dossierExpandedRow = null;
+    resetPhotoState();
+    resetBiechtRecording();
+    renderDossierOverview();
     go('s-dossier');
     return;
   }
-  // Dossier al volledig ingevuld (of geen bruikbare opgeslagen voortgang)
+  // Dossier al volledig ingediend (of geen bruikbare opgeslagen voortgang)
   // — laat de live-synchronisatie vanaf hier vanzelf vooruitspringen naar
   // de huidige fase van het spel.
   go('s-waiting');
@@ -569,9 +595,11 @@ async function joinLobbyClick() {
     saveLocalSession(name, gameName);
     subscribeLobby();
     resetDossierState();
+    dossierExpandedRow = null;
     resetPhotoState();
     resetBiechtRecording();
     go('s-dossier');
+    renderDossierOverview();
   } catch (e) {
     errEl.textContent = e.message; errEl.style.display = 'block';
   } finally {
@@ -673,7 +701,26 @@ async function hostStartGame() {
   go('s-round1-intro');
 }
 
-function goDossier() { resetDossierState(); resetPhotoState(); resetBiechtRecording(); go('s-dossier'); }
+function goDossier() {
+  // Bestaat er al een opgeslagen voortgang voor dit exacte spel (bv. de
+  // speler ging even terug naar de lobby en komt nu terug), herlaad die
+  // dan in plaats van alles blindelings te resetten.
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(answersStorageKey(Session.gameName, Session.code)) || 'null'); } catch (e) { draft = null; }
+  if (draft && Array.isArray(draft.questions) && draft.questions.length) {
+    sessionDossierQs = draft.questions;
+    Session.dossierAnswers = draft.answers || {};
+    Session.photoStepDone = !!draft.photoStepDone;
+    Session.voiceStepDone = !!draft.voiceStepDone;
+  } else {
+    resetDossierState();
+  }
+  dossierExpandedRow = null;
+  resetPhotoState();
+  resetBiechtRecording();
+  go('s-dossier');
+  renderDossierOverview();
+}
 
 // ── Dossierfoto (Ronde 2) ──────────────────
 
@@ -722,12 +769,33 @@ async function handlePhotoSelected(ev) {
 // Het masker is optioneel en gewoon voor de lol — de foto zelf hoort al
 // onherkenbaar te zijn (bv. als kind, verkleed, ...). Wie toch een
 // duidelijkere foto koos, kan er hierna nog een masker overheen zetten.
+// Markeert de foto- of stem-stap als afgehandeld (bevestigd of bewust
+// overgeslagen) en keert terug naar het dossier-overzicht — dat scherm
+// toont dan de bijgewerkte status en of "Dossier indienen" al actief mag
+// worden.
+function markPhotoStepDone() {
+  Session.photoStepDone = true;
+  saveLocalAnswersDraft();
+  go('s-dossier');
+  renderDossierOverview();
+}
+
+function markVoiceStepDone() {
+  Session.voiceStepDone = true;
+  saveLocalAnswersDraft();
+  go('s-dossier');
+  renderDossierOverview();
+}
+
+function goDossierPhotoStep() { go('s-dossier-photo'); }
+function goDossierVoiceStep() { go('s-dossier-voice'); }
+
 function confirmPhotoAndContinue() {
-  if (!pendingPhotoDataUrl) { go('s-dossier-voice'); return; }
+  if (!pendingPhotoDataUrl) { markPhotoStepDone(); return; }
   openMaskEditor();
 }
 
-function skipPhotoAndContinue() { pendingPhotoDataUrl = null; go('s-dossier-voice'); }
+function skipPhotoAndContinue() { pendingPhotoDataUrl = null; markPhotoStepDone(); }
 
 // ── Masker plaatsen (optioneel, Ronde 2) ──
 
@@ -776,53 +844,156 @@ async function confirmMaskAndContinue() {
       }));
     } catch (e) { /* local demo mode, or a photo submit that never made it through — Round 2 falls back gracefully with fewer real photos */ }
   }
-  go('s-dossier-voice');
+  markPhotoStepDone();
 }
 
 async function skipMaskAndContinue() {
   if (Session.code && Session.playerId) {
     try { await withRetry(() => GameOps.submitPhoto(Session.code, Session.playerId, { url: pendingPhotoDataUrl })); } catch (e) { /* local demo mode, or a photo submit that never made it through */ }
   }
-  go('s-dossier-voice');
-}
-
-// Tekent het huidige dossierscherm op basis van dossierQ/sessionDossierQs
-// — herbruikt door zowel resetDossierState() (verse start) als
-// resumeSession() (hervatten met een bewaarde vragenlijst en index).
-function renderCurrentDossierQuestion() {
-  const total = sessionDossierQs.length;
-  document.getElementById('q-counter').textContent = `Vraag ${dossierQ + 1} van ${total}`;
-  document.getElementById('q-text').textContent = sessionDossierQs[dossierQ];
-  document.getElementById('dossier-progress').style.width = Math.round(((dossierQ + 1) / total) * 100) + '%';
-  document.getElementById('q-answer').value = '';
-  document.getElementById('dossier-next-btn').textContent = (dossierQ === total - 1) ? 'Verder →' : 'Volgende →';
+  markPhotoStepDone();
 }
 
 function resetDossierState() {
-  dossierQ = 0;
   Session.dossierAnswers = {};
+  Session.photoStepDone = false;
+  Session.voiceStepDone = false;
   // Elke speler krijgt een eigen willekeurige subset van de vragenbank,
   // plus altijd de bekentenis/liedje/drankje-vraag aan het eind.
   sessionDossierQs = [...shuffle(PARTY_QS).slice(0, PLAYER_PARTY_QUESTION_COUNT), CONFESSION_Q, SONG_Q, DRINK_Q];
-  renderCurrentDossierQuestion();
 }
 
-function nextQ() {
-  const answerEl = document.getElementById('q-answer');
-  const currentQuestion = sessionDossierQs[dossierQ];
-  const val = answerEl.value.trim();
-  if (val) Session.dossierAnswers[currentQuestion] = val;
+// ── Dossier-overzicht (accordion-stijl) ───
+// Vervangt de vroegere stap-voor-stap vragenlijst: de speler ziet alle
+// vragen (gegroepeerd per categorie) plus de foto- en stem-stap in één
+// scherm, met een status (○/✓) per item, en kan ze in willekeurige
+// volgorde invullen/wijzigen tot "Dossier indienen" wordt getikt.
 
-  dossierQ++;
-  saveLocalAnswersDraft();
-  const total = sessionDossierQs.length;
+function buildDossierCategories() {
+  const inSession = new Set(sessionDossierQs);
+  const cats = PARTY_QUESTION_CATEGORIES
+    .map(c => ({ name: c.name, questions: c.questions.filter(q => inSession.has(q)) }))
+    .filter(c => c.questions.length);
+  cats.push({ name: 'Tot slot', questions: [CONFESSION_Q, SONG_Q, DRINK_Q] });
+  return cats;
+}
 
-  if (dossierQ >= total) {
-    go('s-dossier-photo');
-    return;
+function dossierProgressCounts() {
+  const doneTextQs = sessionDossierQs.filter(q => (Session.dossierAnswers[q] || '').trim()).length;
+  const doneItems = doneTextQs + (Session.photoStepDone ? 1 : 0) + (Session.voiceStepDone ? 1 : 0);
+  const totalItems = sessionDossierQs.length + 2; // + foto + stem
+  return { doneItems, totalItems };
+}
+
+// Herberekent enkel de voortgangsbalk + indien-knop, zonder de lijst zelf
+// opnieuw op te bouwen — dat zou een net-aangeklikt element onder de
+// vinger kunnen vervangen (zie saveDossierRowOnBlur hieronder).
+function updateDossierProgress() {
+  const { doneItems, totalItems } = dossierProgressCounts();
+  document.getElementById('dossier-progress').style.width = Math.round((doneItems / totalItems) * 100) + '%';
+  document.getElementById('dossier-progress-label').textContent = `${doneItems} van ${totalItems} ingevuld`;
+  const btn = document.getElementById('dossier-submit-btn');
+  const allDone = doneItems >= totalItems;
+  btn.disabled = !allDone;
+  btn.classList.toggle('amber', allDone);
+  btn.classList.toggle('ghost', !allDone);
+}
+
+function updateDossierRowDot(idx) {
+  const question = sessionDossierQs[idx];
+  const answered = !!(Session.dossierAnswers[question] || '').trim();
+  const row = document.getElementById('dq-' + idx + '-row');
+  if (row) row.classList.toggle('done', answered);
+  const dot = document.getElementById('dq-' + idx + '-dot');
+  if (dot) dot.textContent = answered ? '✓' : '○';
+  updateDossierProgress();
+}
+
+function renderDossierRow(question) {
+  const idx = sessionDossierQs.indexOf(question);
+  const answered = !!(Session.dossierAnswers[question] || '').trim();
+  const expanded = dossierExpandedRow === question;
+  return `
+    <div class="dossier-row ${answered ? 'done' : ''}" id="dq-${idx}-row">
+      <div class="dossier-row-head" onclick="toggleDossierRow(${idx})">
+        <span class="dossier-row-status" id="dq-${idx}-dot">${answered ? '✓' : '○'}</span>
+        <span class="dossier-row-label">${question}</span>
+      </div>
+      ${expanded ? `
+        <div class="dossier-row-body">
+          <textarea id="dq-${idx}-input" placeholder="Typ je antwoord..." onblur="saveDossierRowOnBlur(${idx})"></textarea>
+        </div>` : ''}
+    </div>`;
+}
+
+function renderDossierSpecialRow(kind) {
+  const done = kind === 'photo' ? Session.photoStepDone : Session.voiceStepDone;
+  const label = kind === 'photo' ? 'Jouw foto (voor Ronde 2)' : 'Verhaal inspreken (voor Ronde 5)';
+  const action = kind === 'photo' ? 'goDossierPhotoStep()' : 'goDossierVoiceStep()';
+  return `
+    <div class="dossier-row ${done ? 'done' : ''}">
+      <div class="dossier-row-head" onclick="${action}">
+        <span class="dossier-row-status">${done ? '✓' : '○'}</span>
+        <span class="dossier-row-label">${label}</span>
+        <span class="dossier-row-chevron">→</span>
+      </div>
+    </div>`;
+}
+
+function renderDossierOverview() {
+  const listEl = document.getElementById('dossier-overview-list');
+  if (!listEl) return;
+  const categories = buildDossierCategories();
+  listEl.innerHTML = categories.map(cat => `
+    <div class="dossier-cat-title">${cat.name}</div>
+    ${cat.questions.map(q => renderDossierRow(q)).join('')}
+  `).join('') + '<div class="dossier-cat-title">Foto & stem</div>' + renderDossierSpecialRow('photo') + renderDossierSpecialRow('voice');
+  updateDossierProgress();
+  if (dossierExpandedRow !== null) {
+    const idx = sessionDossierQs.indexOf(dossierExpandedRow);
+    const input = document.getElementById('dq-' + idx + '-input');
+    if (input) {
+      // .value i.p.v. in de HTML-template interpoleren — het antwoord is
+      // door de speler zelf getypt en mag niet als HTML worden geparsed.
+      input.value = Session.dossierAnswers[dossierExpandedRow] || '';
+      input.focus();
+    }
   }
+}
 
-  renderCurrentDossierQuestion();
+// Slaat de huidige tekst van een open invoerveld op zonder de hele lijst
+// opnieuw op te bouwen (enkel het eigen statusbolletje) — nodig omdat dit
+// ook vanuit een blur-event afgaat, dat kan afgaan terwijl een ANDER
+// element (bv. een volgende rij-header) net wordt aangeklikt; een volledige
+// innerHTML-vervanging op dat moment zou dat net-aangeklikte element onder
+// de vinger kunnen wegtrekken.
+function saveDossierRowOnBlur(idx) {
+  const question = sessionDossierQs[idx];
+  const input = document.getElementById('dq-' + idx + '-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (val) Session.dossierAnswers[question] = val;
+  else delete Session.dossierAnswers[question];
+  saveLocalAnswersDraft();
+  updateDossierRowDot(idx);
+}
+
+function toggleDossierRow(idx) {
+  if (dossierExpandedRow !== null) {
+    const openIdx = sessionDossierQs.indexOf(dossierExpandedRow);
+    if (openIdx >= 0) saveDossierRowOnBlur(openIdx);
+  }
+  const question = sessionDossierQs[idx];
+  dossierExpandedRow = (dossierExpandedRow === question) ? null : question;
+  renderDossierOverview();
+}
+
+async function submitDossierOverview() {
+  const { doneItems, totalItems } = dossierProgressCounts();
+  if (doneItems < totalItems) return; // de knop zou al disabled moeten zijn — extra veiligheid
+  const errEl = document.getElementById('dossier-submit-error');
+  if (errEl) errEl.style.display = 'none';
+  await submitDossierAndWait();
 }
 
 // Enige echte inzending van het dossier — gebeurt nu pas op het einde
@@ -839,10 +1010,10 @@ async function submitDossierAndWait() {
     try {
       await withRetry(() => GameOps.submitDossier(Session.code, Session.playerId, Session.dossierAnswers));
     } catch (e) {
-      const statusEl = document.getElementById('biecht-record-status');
-      if (statusEl) {
-        statusEl.style.color = 'var(--red)';
-        statusEl.textContent = 'Kon je dossier niet versturen — controleer je internetverbinding en probeer opnieuw.';
+      const errEl = document.getElementById('dossier-submit-error');
+      if (errEl) {
+        errEl.textContent = 'Kon je dossier niet versturen — controleer je internetverbinding en probeer opnieuw.';
+        errEl.style.display = 'block';
       }
       return;
     }
@@ -1980,7 +2151,7 @@ async function skipBiechtRecording() {
   if (Session.code && Session.playerId) {
     try { await withRetry(() => GameOps.markVoiceSkipped(Session.code, Session.playerId)); } catch (e) { /* local demo mode, or a marker that never made it through */ }
   }
-  await submitDossierAndWait();
+  markVoiceStepDone();
 }
 
 function stopBiechtRecording() {
@@ -2031,18 +2202,17 @@ function resetBiechtRecording() {
 }
 
 async function confirmBiechtRecording() {
-  if (!distortedVoiceDataUrl || !Session.code) { await submitDossierAndWait(); return; }
+  if (!distortedVoiceDataUrl || !Session.code) { markVoiceStepDone(); return; }
   try {
     await withRetry(() => Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl));
     await withRetry(() => GameOps.markVoiceReady(Session.code, Session.playerId));
   } catch (e) {
     // De opname kwam er niet door — de speler mag verder zonder biecht
-    // in plaats van hier voorgoed vast te zitten; het dossier zelf (met
-    // alle tekstantwoorden) moet hoe dan ook nog verstuurd worden.
+    // in plaats van hier voorgoed vast te zitten.
     const statusEl = document.getElementById('biecht-record-status');
     if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = 'Opname kon niet verstuurd worden — ga verder zonder biecht.'; }
   }
-  await submitDossierAndWait();
+  markVoiceStepDone();
 }
 
 // Stemvervorming: neem het opgenomen fragment, verander toonhoogte + snelheid

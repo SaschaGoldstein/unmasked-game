@@ -11,11 +11,11 @@
 //     iedereen alle foto's, bekentenissen en stemmen van alle spellen
 //     binnenhalen). Je moet de exacte code kennen.
 //   - Lobby's en opnames kunnen niet door een client verwijderd worden.
-//   - Stemopnames zijn beperkt tot ~1 MB.
+//   - Stemopnames zijn beperkt tot ~1 MB, foto's tot ~400 kB.
 //
 //  Opruiming: zet in de console een TTL-policy op het veld "expiresAt"
 //  (Firestore → TTL → Create policy) voor de collectiegroepen
-//  "lobbies", "voices" en "clock". Firestore wist die documenten dan
+//  "lobbies", "photos", "voices" en "clock". Firestore wist die documenten dan
 //  automatisch ~48 uur na het aanmaken van de lobby.
 // ─────────────────────────────────────────
 
@@ -29,6 +29,13 @@ service cloud.firestore {
       allow create, update: if code.matches('UM-[A-Z]{2}[0-9]{2}')
                             && request.resource.data.code == code;
       allow delete: if false;
+
+      match /photos/{playerId} {
+        allow get: if true;
+        allow list, delete: if false;
+        allow create, update: if request.resource.data.url is string
+                              && request.resource.data.url.size() < 400000;
+      }
 
       match /voices/{playerId} {
         allow get: if true;

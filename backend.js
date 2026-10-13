@@ -161,6 +161,20 @@ class LocalBackend {
     localStorage.setItem(this._voiceKey(code, playerId), dataUrl);
   }
 
+  // Eén veld (bv. guesses.qf_3.<speler>) zetten zonder de rest van de
+  // lobby te herschrijven — zie FirebaseBackend.fastSet.
+  async fastSet(code, path, value) {
+    return this.updateLobby(code, (lobby) => {
+      const parts = path.split('.');
+      let o = lobby;
+      for (const k of parts.slice(0, -1)) { if (!o[k] || typeof o[k] !== 'object') o[k] = {}; o = o[k]; }
+      o[parts[parts.length - 1]] = value;
+    });
+  }
+
+  async submitPhotoData(code, playerId, url) { localStorage.setItem(`unmasked:photo:${code}:${playerId}`, url); }
+  async getPhotoData(code, playerId) { return localStorage.getItem(`unmasked:photo:${code}:${playerId}`); }
+
   async getVoice(code, playerId) {
     return localStorage.getItem(this._voiceKey(code, playerId));
   }
@@ -260,7 +274,10 @@ class FirebaseBackend {
   subscribe(code, cb) {
     let unsub = () => {};
     this._doc(code).then((ref) => {
-      unsub = this.fs.onSnapshot(ref, (snap) => { if (snap.exists()) cb(snap.data()); });
+      unsub = this.fs.onSnapshot(ref, { includeMetadataChanges: true }, (snap) => {
+        if (window.onBackendConnectionInfo) window.onBackendConnectionInfo({ fromCache: snap.metadata.fromCache });
+        if (snap.exists()) cb(snap.data());
+      });
     });
     return () => unsub();
   }
@@ -278,6 +295,29 @@ class FirebaseBackend {
       result = lobby;
     });
     return result;
+  }
+
+  // Gokken en stemmen: enkel dat ene veld bijwerken (geen transactie,
+  // geen leesactie). Tien spelers die tegelijk tikken staan zo niet meer
+  // op elkaar te wachten, en er gaat geen gok verloren door een
+  // mislukte transactie.
+  async fastSet(code, path, value) {
+    const ref = await this._doc(code);
+    await this.fs.updateDoc(ref, path, value);
+  }
+
+  // Foto's staan in een eigen document (lobbies/{code}/photos/{speler}),
+  // niet meer in het lobbydocument zelf. Anders ging bij elke gok het hele
+  // document mét alle foto's opnieuw naar elke telefoon.
+  async submitPhotoData(code, playerId, url) {
+    await this._ready;
+    await this.fs.setDoc(this.fs.doc(this.db, 'lobbies', code, 'photos', playerId), { url, expiresAt: lobbyExpiry() });
+  }
+
+  async getPhotoData(code, playerId) {
+    await this._ready;
+    const snap = await this.fs.getDoc(this.fs.doc(this.db, 'lobbies', code, 'photos', playerId));
+    return snap.exists() ? snap.data().url : null;
   }
 
   async submitVoice(code, playerId, dataUrl) {
@@ -325,6 +365,47 @@ function speedPoints(elapsedSec, secondsAllowed) {
 const RANK_POINTS = [10, 8, 6, 5, 4, 3, 2];
 function rankPoints(rankIndex) { return RANK_POINTS[rankIndex] ?? 1; }
 
+// ── Gokken en stemmen ──
+// Staan in lobby.guesses, per vraag in een eigen "emmer":
+//   guesses.qf_3.<speler> = { guess, at }   (Ronde 1, vraag 4)
+// Sleutels: qf (R1), pr (R2), vh (R3), st (R4 eigenaar), dr (R4 drankje),
+// bc (R5 verhaal), bv (R5 stem beste verhaal), fav (bonus favoriete foto).
+// Een gok die te laat binnenkomt, belandt zo in de emmer van zijn eigen
+// vraag en nooit bij de volgende. hydrateGuesses() zet de emmer van de
+// huidige vraag terug op de vertrouwde plek (qf.answers, ...), zodat de
+// rest van de code ongewijzigd kan blijven.
+function guessBucket(lobby, key) { return (lobby.guesses && lobby.guesses[key]) || {}; }
+function bucketValues(bucket) {
+  const out = {};
+  for (const [id, a] of Object.entries(bucket)) out[id] = a && typeof a === 'object' ? a.guess : a;
+  return out;
+}
+function hydrateGuesses(lobby) {
+  if (!lobby) return lobby;
+  if (lobby.quickfire) lobby.quickfire.answers = guessBucket(lobby, 'qf_' + lobby.quickfire.index);
+  if (lobby.photoRound) lobby.photoRound.answers = guessBucket(lobby, 'pr_' + lobby.photoRound.index);
+  if (lobby.verhoor) lobby.verhoor.answers = guessBucket(lobby, 'vh_' + lobby.verhoor.index);
+  if (lobby.soundtrack) {
+    lobby.soundtrack.ownerAnswers = guessBucket(lobby, 'st_' + lobby.soundtrack.index);
+    lobby.soundtrack.drinkAnswers = bucketValues(guessBucket(lobby, 'dr_' + lobby.soundtrack.index));
+  }
+  if (lobby.biecht) {
+    lobby.biecht.answers = guessBucket(lobby, 'bc_' + lobby.biecht.index);
+    lobby.biecht.votes = bucketValues(guessBucket(lobby, 'bv'));
+  }
+  if (lobby.hotornot) lobby.hotornot.votes = bucketValues(guessBucket(lobby, 'fav'));
+  return lobby;
+}
+window.hydrateGuesses = hydrateGuesses;
+
+async function submitGuess(code, key, playerId, guess) {
+  return Backend.fastSet(code, `guesses.${key}.${playerId}`, { guess, at: serverNow() });
+}
+
+// Een gok die pas ruim na het einde van de tijd binnenkomt (trage
+// verbinding), telt niet meer mee.
+function tooLate(a, startAt, secondsAllowed) { return (a.at - startAt) / 1000 > secondsAllowed + 1.5; }
+
 // Telt hoe vaak iemand ontmaskerd werd (minstens één ander raadde het
 // juist) — voor de titel "Meest Ontmaskerd" op de eindstand.
 function markUnmasked(player) { if (player) player.timesUnmasked = (player.timesUnmasked || 0) + 1; }
@@ -348,10 +429,44 @@ async function reopenDossier(code, playerId) {
   });
 }
 
+// De foto zelf gaat naar een apart document; in de lobby komt enkel een
+// klein kenmerk (heeft een foto + maskerpositie).
 async function submitPhoto(code, playerId, photo) {
+  if (photo && photo.url) await Backend.submitPhotoData(code, playerId, photo.url);
   return Backend.updateLobby(code, (lobby) => {
     const p = findPlayer(lobby, playerId);
-    if (p) p.photo = photo;
+    if (!p) return;
+    if (!photo || !photo.url) { delete p.photo; return; }
+    const meta = { has: true };
+    if (photo.maskX !== undefined) Object.assign(meta, { maskX: photo.maskX, maskY: photo.maskY, maskScale: photo.maskScale });
+    p.photo = meta;
+  });
+}
+
+async function setSettings(code, settings) {
+  return Backend.updateLobby(code, (lobby) => { lobby.settings = settings; });
+}
+
+// "Nog een potje": scores, rondes en gokken op nul. Met keepDossiers blijven
+// alle antwoorden, foto's en opnames bewaard; zonder vult iedereen een nieuw
+// dossier in. Welke Ronde 1-vragen al gesteld werden, wordt onthouden zodat
+// een tweede potje andere vragen kiest.
+async function startRematch(code, keepDossiers) {
+  return Backend.updateLobby(code, (lobby) => {
+    const asked = (lobby.quickfire && lobby.quickfire.questions) || [];
+    lobby.usedQuestionKeys = [...new Set([...(lobby.usedQuestionKeys || []), ...asked.map(q => q.label + '|' + q.correctPlayer)])];
+    lobby.gameNumber = (lobby.gameNumber || 1) + 1;
+    lobby.phase = 'lobby';
+    ['quickfire', 'photoRound', 'hotornot', 'verhoor', 'soundtrack', 'biecht', 'skipNotes', 'guesses'].forEach(k => { delete lobby[k]; });
+    lobby.expiresAt = Backend instanceof LocalBackend ? Date.now() + LOBBY_TTL_MS : lobbyExpiry();
+    lobby.players.forEach(p => {
+      p.score = 0; p.timesUnmasked = 0;
+      if (!keepDossiers) {
+        p.dossierDone = false; p.dossierAnswers = {};
+        delete p.photo; p.voiceReady = false; p.voiceSkipped = false;
+        lobby.usedQuestionKeys = [];
+      }
+    });
   });
 }
 
@@ -381,6 +496,7 @@ async function setQuickfire(code, quickfireState) {
 // pogingen door twee gelijktijdige spelers kunnen nooit dubbel scoren.
 async function revealQuickfire(code, index, secondsAllowed) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const qf = lobby.quickfire;
     if (!qf || qf.index !== index || qf.revealed) return;
     const q = qf.questions[qf.index];
@@ -390,6 +506,7 @@ async function revealQuickfire(code, index, secondsAllowed) {
       // Je kan geen punten krijgen op je eigen antwoord — dat zou je
       // altijd al weten, dus geen echte gok.
       if (voter && voter.name === q.correctPlayer) continue;
+      if (tooLate(a, qf.questionStartAt, secondsAllowed)) continue;
       if (a.guess === q.correctPlayer) {
         const pts = speedPoints((a.at - qf.questionStartAt) / 1000, secondsAllowed);
         if (voter) { voter.score = (voter.score || 0) + pts; caught = true; }
@@ -403,14 +520,7 @@ async function revealQuickfire(code, index, secondsAllowed) {
 // Elke gok draagt de vraagindex mee: komt een trage gok pas aan nadat de
 // vraag al onthuld is of de host al verder ging, dan wordt hij genegeerd
 // in plaats van stilletjes bij de VOLGENDE vraag te belanden.
-async function submitQFGuess(code, playerId, guess, index) {
-  return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.quickfire || lobby.quickfire.index !== index || lobby.quickfire.revealed) return;
-    if (!lobby.quickfire.answers) lobby.quickfire.answers = {};
-    if (lobby.quickfire.answers[playerId]) return;
-    lobby.quickfire.answers[playerId] = { guess, at: serverNow() };
-  });
-}
+async function submitQFGuess(code, playerId, guess, index) { return submitGuess(code, 'qf_' + index, playerId, guess); }
 
 async function setPhotoRound(code, photoRoundState) {
   return Backend.updateLobby(code, (lobby) => { lobby.photoRound = photoRoundState; });
@@ -420,6 +530,7 @@ async function setPhotoRound(code, photoRoundState) {
 // zie de uitleg daar.
 async function revealPhotoRound(code, index, secondsAllowed) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const pr = lobby.photoRound;
     if (!pr || pr.index !== index || pr.revealed) return;
     const photo = pr.photos[pr.index];
@@ -428,6 +539,7 @@ async function revealPhotoRound(code, index, secondsAllowed) {
       const voter = findPlayer(lobby, voterId);
       // Je kan geen punten krijgen door je eigen foto te "raden".
       if (voter && voter.name === photo.player) continue;
+      if (tooLate(a, pr.questionStartAt, secondsAllowed)) continue;
       if (a.guess === photo.player) {
         const pts = speedPoints((a.at - pr.questionStartAt) / 1000, secondsAllowed);
         if (voter) { voter.score = (voter.score || 0) + pts; caught = true; }
@@ -438,30 +550,16 @@ async function revealPhotoRound(code, index, secondsAllowed) {
   });
 }
 
-async function submitPhotoGuess(code, playerId, guess, index) {
-  return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.photoRound || lobby.photoRound.index !== index || lobby.photoRound.revealed) return;
-    if (!lobby.photoRound.answers) lobby.photoRound.answers = {};
-    if (lobby.photoRound.answers[playerId]) return;
-    lobby.photoRound.answers[playerId] = { guess, at: serverNow() };
-  });
-}
+async function submitPhotoGuess(code, playerId, guess, index) { return submitGuess(code, 'pr_' + index, playerId, guess); }
 
 async function setHotOrNot(code, honState) {
   return Backend.updateLobby(code, (lobby) => { lobby.hotornot = honState; });
 }
 
-// Bonusronde "Favoriete foto" (vervangt Hot or Not): één stem per speler,
-// niet op je eigen foto, enkel op foto's die in de ronde zitten.
+// Bonusronde "Favoriete foto": één stem per speler, niet op je eigen foto.
 async function voteFavoritePhoto(code, voterId, targetPlayerId) {
-  return Backend.updateLobby(code, (lobby) => {
-    const fav = lobby.hotornot;
-    if (!fav || fav.stage !== 'favorite') return;
-    if (voterId === targetPlayerId || !(fav.candidates || []).includes(targetPlayerId)) return;
-    if (!fav.votes) fav.votes = {};
-    if (fav.votes[voterId]) return;
-    fav.votes[voterId] = targetPlayerId;
-  });
+  if (voterId === targetPlayerId) return;
+  return submitGuess(code, 'fav', voterId, targetPlayerId);
 }
 
 // Host-tool: speler uit de lobby halen (bv. iemand die afhaakte of per
@@ -492,6 +590,7 @@ async function setVerhoor(code, verhoorState) {
 // werd, in dezelfde schrijfactie.
 async function revealVerhoor(code, index, secondsAllowed) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const v = lobby.verhoor;
     if (!v || v.index !== index || v.revealed) return;
     const q = v.list[v.index];
@@ -500,6 +599,7 @@ async function revealVerhoor(code, index, secondsAllowed) {
     for (const [voterId, a] of Object.entries(answers)) {
       // Je kan jezelf niet "ontmaskeren" — dat telt niet als gok.
       if (voterId === q.playerId) continue;
+      if (tooLate(a, v.questionStartAt, secondsAllowed)) continue;
       if (a.guess === q.playerId) {
         caught = true;
         const pts = speedPoints((a.at - v.questionStartAt) / 1000, secondsAllowed);
@@ -516,14 +616,7 @@ async function revealVerhoor(code, index, secondsAllowed) {
   });
 }
 
-async function submitVerhoorGuess(code, playerId, guess, index) {
-  return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.verhoor || lobby.verhoor.index !== index || lobby.verhoor.revealed) return;
-    if (!lobby.verhoor.answers) lobby.verhoor.answers = {};
-    if (lobby.verhoor.answers[playerId]) return; // one guess per question
-    lobby.verhoor.answers[playerId] = { guess, at: serverNow() };
-  });
-}
+async function submitVerhoorGuess(code, playerId, guess, index) { return submitGuess(code, 'vh_' + index, playerId, guess); }
 
 async function setBiecht(code, biechtState) {
   return Backend.updateLobby(code, (lobby) => { lobby.biecht = biechtState; });
@@ -544,21 +637,11 @@ async function markVoiceSkipped(code, playerId) {
 }
 
 async function voteBiecht(code, targetPlayerId, voterId) {
-  return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.biecht) return;
-    if (!lobby.biecht.votes) lobby.biecht.votes = {};
-    lobby.biecht.votes[voterId] = targetPlayerId;
-  });
+  if (targetPlayerId === voterId) return;
+  return submitGuess(code, 'bv', voterId, targetPlayerId);
 }
 
-async function submitBiechtGuess(code, playerId, guess, index) {
-  return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.biecht || lobby.biecht.stage !== 'playback' || lobby.biecht.index !== index || lobby.biecht.revealed) return;
-    if (!lobby.biecht.answers) lobby.biecht.answers = {};
-    if (lobby.biecht.answers[playerId]) return; // één gok per verhaal
-    lobby.biecht.answers[playerId] = { guess, at: serverNow() };
-  });
-}
+async function submitBiechtGuess(code, playerId, guess, index) { return submitGuess(code, 'bc_' + index, playerId, guess); }
 
 // Atomaire onthulling + score-toekenning, zelfde patroon als
 // revealQuickfire — kent punten toe aan wie het eerst juist gokte van
@@ -566,6 +649,7 @@ async function submitBiechtGuess(code, playerId, guess, index) {
 // lang), dus "eerste juiste gok wint" i.p.v. een snelheidsformule.
 async function revealBiechtStory(code, index) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const b = lobby.biecht;
     if (!b || b.index !== index || b.revealed) return;
     const targetId = b.order[b.index];
@@ -590,10 +674,12 @@ async function revealBiechtStory(code, index) {
 // geven, vlak voor de uiteindelijke eindstand.
 async function finalizeBiechtVote(code) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const b = lobby.biecht;
     if (!b || b.voteFinalized) return;
     const tally = {};
-    Object.values(b.votes || {}).forEach((pid) => { tally[pid] = (tally[pid] || 0) + 1; });
+    // Een stem op je eigen verhaal telt niet.
+    Object.entries(b.votes || {}).forEach(([voterId, pid]) => { if (voterId !== pid) tally[pid] = (tally[pid] || 0) + 1; });
     const maxVotes = Math.max(0, ...Object.values(tally));
     if (maxVotes > 0) {
       const winners = Object.entries(tally).filter(([, c]) => c === maxVotes).map(([pid]) => pid);
@@ -616,6 +702,7 @@ async function setSoundtrack(code, soundtrackState) {
 // & drankje" de winnaar twee keer de 5 punten geven.
 async function revealSoundtrackOwner(code, index) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const st = lobby.soundtrack;
     if (!st || st.index !== index || st.revealed) return;
     const track = st.list[st.index];
@@ -638,6 +725,7 @@ async function revealSoundtrackOwner(code, index) {
 // 2 bonuspunten geeft.
 async function revealSoundtrackDrink(code, index) {
   return Backend.updateLobby(code, (lobby) => {
+    hydrateGuesses(lobby);
     const st = lobby.soundtrack;
     if (!st || st.index !== index || st.drinkRevealed) return;
     const track = st.list[st.index];
@@ -656,28 +744,12 @@ async function revealSoundtrackDrink(code, index) {
   });
 }
 
-async function submitSoundtrackGuess(code, playerId, guess, index) {
-  return Backend.updateLobby(code, (lobby) => {
-    const st = lobby.soundtrack;
-    if (!st || st.index !== index || st.stage !== 'guessing' || st.revealed) return;
-    if (!lobby.soundtrack.ownerAnswers) lobby.soundtrack.ownerAnswers = {};
-    if (lobby.soundtrack.ownerAnswers[playerId]) return;
-    lobby.soundtrack.ownerAnswers[playerId] = { guess, at: serverNow() };
-  });
-}
+async function submitSoundtrackGuess(code, playerId, guess, index) { return submitGuess(code, 'st_' + index, playerId, guess); }
 
-async function submitSoundtrackDrinkGuess(code, playerId, drink, index) {
-  return Backend.updateLobby(code, (lobby) => {
-    const st = lobby.soundtrack;
-    if (!st || st.index !== index || st.stage !== 'drink' || st.drinkRevealed) return;
-    if (!lobby.soundtrack.drinkAnswers) lobby.soundtrack.drinkAnswers = {};
-    if (lobby.soundtrack.drinkAnswers[playerId]) return;
-    lobby.soundtrack.drinkAnswers[playerId] = drink;
-  });
-}
+async function submitSoundtrackDrinkGuess(code, playerId, drink, index) { return submitGuess(code, 'dr_' + index, playerId, drink); }
 
 window.GameOps = {
-  submitDossier, reopenDossier, submitPhoto, setPhase, addScore,
+  submitDossier, reopenDossier, submitPhoto, setPhase, addScore, setSettings, startRematch,
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
   setHotOrNot, voteFavoritePhoto, removePlayer, claimHost, speedPoints, rankPoints,
   setVerhoor, submitVerhoorGuess, revealVerhoor,

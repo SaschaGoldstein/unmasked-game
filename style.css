@@ -394,3 +394,57 @@ audio { border-radius: var(--radius-sm); }
 .remove-player-btn { margin-left: auto; background: none; border: 1px solid var(--card-border); color: var(--text-muted); border-radius: 50%; width: 30px; height: 30px; font-size: 14px; cursor: pointer; flex-shrink: 0; }
 .remove-player-btn:active { opacity: 0.7; }
 #takeover-btn { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 50; background: var(--card-bg-2); color: var(--text); border: 1px solid var(--accent2); border-radius: 20px; padding: 8px 16px; font-family: var(--font-body); font-size: 13px; font-weight: 600; cursor: pointer; max-width: calc(100% - 32px); }
+
+/* ── Verbinding, geluid ── */
+#conn-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 600; background: #3a1414; color: #ffd7d7; border-bottom: 1px solid var(--red); text-align: center; font-size: 13px; font-weight: 600; padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px; }
+#sound-btn { position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); left: 10px; z-index: 500; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--card-border); background: rgba(20,18,32,0.7); backdrop-filter: blur(4px); font-size: 14px; cursor: pointer; display: none; }
+body.in-game #sound-btn { display: block; }
+
+/* ── Spelinstellingen ── */
+.seg { display: flex; gap: 6px; width: 100%; }
+.seg-btn { flex: 1; padding: 9px 4px; border-radius: 10px; border: 1px solid var(--card-border); background: var(--card-bg-2); color: var(--text-muted); font-family: var(--font-body); font-size: 13px; font-weight: 600; cursor: pointer; }
+.seg-btn.selected { border-color: var(--accent2); color: var(--text); box-shadow: 0 0 0 1px var(--accent2) inset; }
+.round-toggle { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; color: var(--text); text-align: left; cursor: pointer; }
+.round-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* ── Scorebord-animatie ── */
+.scoreboard-animate .score-row { animation: rowIn 0.45s cubic-bezier(.2,.8,.2,1) both; }
+.scoreboard-animate .score-bar { animation: barGrow 0.9s cubic-bezier(.2,.8,.2,1) both; transform-origin: left; }
+@keyframes rowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes barGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) { .scoreboard-animate .score-row, .scoreboard-animate .score-bar { animation: none; } }
+
+/* ── Toegankelijkheid: juist/fout niet enkel met kleur ── */
+.player-btn.correct .pb-name::after, .answer-card.correct .answer-text::after { content: ' ✓'; color: var(--green); font-weight: 700; }
+.player-btn.wrong .pb-name::after, .answer-card.wrong .answer-text::after { content: ' ✗'; color: var(--red); font-weight: 700; }
+[role="button"]:focus-visible, button:focus-visible, .seg-btn:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+/* ── Tv-scherm ── */
+#s-tv { min-height: 100vh; }
+.tv-wrap { width: 100%; max-width: 1400px; margin: 0 auto; padding: 3vh 4vw; display: flex; flex-direction: column; min-height: 100vh; }
+.tv-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3vh; }
+.tv-brand { font-family: var(--font-display); font-weight: 700; font-size: clamp(22px, 2.6vw, 44px); color: var(--text); }
+.tv-brand span { color: var(--accent); }
+.tv-code { font-family: var(--font-display); font-size: clamp(16px, 1.8vw, 30px); color: var(--text-muted); text-align: right; }
+.tv-code strong { color: var(--accent2); letter-spacing: 2px; }
+.tv-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 2.4vh; }
+.tv-kicker { font-size: clamp(16px, 1.6vw, 28px); color: var(--accent2); font-weight: 700; text-transform: uppercase; letter-spacing: 2px; }
+.tv-title { font-family: var(--font-display); font-size: clamp(30px, 4.4vw, 80px); font-weight: 700; color: var(--text); line-height: 1.1; max-width: 90%; }
+.tv-sub { font-size: clamp(18px, 2vw, 36px); color: var(--text-muted); max-width: 85%; }
+.tv-quote { font-family: var(--font-display); font-size: clamp(28px, 3.6vw, 64px); color: var(--text); font-weight: 600; max-width: 85%; }
+.tv-timer { font-family: var(--font-display); font-size: clamp(48px, 7vw, 130px); font-weight: 700; color: var(--accent); }
+.tv-timer.low { color: var(--red); }
+.tv-reveal { font-family: var(--font-display); font-size: clamp(30px, 4vw, 72px); font-weight: 700; color: var(--green); }
+.tv-photo-stage { width: min(60vh, 70vw); height: min(60vh, 70vw); border-radius: 24px; overflow: hidden; background: var(--card-bg); position: relative; }
+.tv-photo { width: 100%; height: 100%; background-size: cover; background-position: center; position: relative; }
+.tv-photo .r2-mask { position: absolute; transform: translate(-50%, -50%); }
+.tv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; width: 100%; }
+.tv-grid .fav-photo { border-radius: 14px 14px 0 0; }
+.tv-board { width: min(900px, 90vw); }
+.tv-board .score-row { padding: 1.4vh 0; }
+.tv-board .score-name { font-size: clamp(18px, 2vw, 34px); }
+.tv-board .score-pts, .tv-board .score-rank { font-size: clamp(20px, 2.2vw, 38px); width: auto; }
+.tv-players { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; max-width: 90%; }
+.tv-players .pill { font-size: clamp(16px, 1.6vw, 26px); padding: 8px 18px; }
+.tv-players .pill.done { color: var(--green); border-color: #1a4020; }
+.tv-small { font-size: clamp(14px, 1.3vw, 22px); color: var(--text-muted); }

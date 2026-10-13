@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=43" />
+  <link rel="stylesheet" href="style.css?v=44" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -15,6 +15,8 @@
 
   <button id="leave-game-btn" onclick="leaveGame()" title="Verlaat spel" style="display:none;">✕</button>
   <button id="takeover-btn" onclick="claimHostClick()" style="display:none;">Host reageert niet? Word host</button>
+  <div id="conn-banner" role="status" aria-live="polite" style="display:none;">⚠️ Verbinding verbroken — opnieuw verbinden…</div>
+  <button id="sound-btn" onclick="toggleSound()" title="Geluid aan/uit" aria-label="Geluid aan/uit">🔊</button>
 
   <!-- HOME -->
   <div class="screen active" id="s-home">
@@ -68,7 +70,7 @@
   <!-- LOBBY CODE -->
   <div class="screen" id="s-lobby">
     <div class="screen-inner">
-      <button class="back-btn" onclick="go('s-home')">← Terug</button>
+      <button class="back-btn" onclick="leaveGame()">← Terug</button>
       <div class="section-title">Lobby actief!</div>
       <div class="section-sub">Stuur de link naar je groep — die opent meteen het "Meedoen"-scherm met de code al ingevuld. Geen account, geen download.</div>
       <div class="code-box">
@@ -81,6 +83,7 @@
         <button class="btn secondary" style="flex:1;" onclick="shareInviteWhatsApp()">💬 WhatsApp</button>
         <button class="btn secondary" style="flex:1;" onclick="shareInviteEmail()">✉️ E-mail</button>
       </div>
+      <button class="btn ghost" id="lobby-tv-btn" style="display:none;margin:-10px 0 14px;" onclick="copyTvLink()">📺 Tv-scherm gebruiken? Kopieer de tv-link</button>
       <div class="section-title" style="font-size:17px;margin-bottom:12px;" id="lobby-player-count">Spelers (1/6)</div>
       <div class="player-list" id="lobby-player-list"></div>
       <button class="btn" onclick="goDossier()" style="margin-top:auto;">Mijn dossier invullen →</button>
@@ -192,6 +195,25 @@
       <button class="btn ghost" style="margin-bottom:8px;" onclick="reopenDossierForEditing()">Zie je een foutje? Dossier nog aanpassen</button>
       <div class="card" id="waiting-notdone-card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><div id="waiting-notdone"></div></div>
       <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="waiting-donecount">Klaar (0/0)</div><div class="card-sub" id="waiting-donelist"></div></div>
+      <div class="card" id="settings-card" style="display:none;width:100%;">
+        <div class="card-title" style="margin-bottom:8px;">Spelinstellingen</div>
+        <div class="label-sm" style="margin-bottom:6px;">Speelduur (vragen per ronde)</div>
+        <div class="seg" id="settings-length">
+          <button class="seg-btn" data-len="kort" onclick="setLengthClick('kort')">Kort · 5</button>
+          <button class="seg-btn" data-len="normaal" onclick="setLengthClick('normaal')">Normaal · 8</button>
+          <button class="seg-btn" data-len="lang" onclick="setLengthClick('lang')">Lang · 12</button>
+        </div>
+        <div class="label-sm" style="margin:12px 0 6px;">Rondes</div>
+        <div id="settings-rounds"></div>
+      </div>
+      <div class="card" id="tv-card" style="display:none;width:100%;">
+        <div class="card-title" style="margin-bottom:4px;">📺 Tv-scherm (optioneel)</div>
+        <div class="card-sub" style="margin-bottom:10px;">Open deze link op een tv, laptop of beamer die iedereen ziet. Daar verschijnen de vragen, foto's en scores in het groot — gokken blijft op de telefoon.</div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn secondary" style="flex:1;" id="tv-copy-btn" onclick="copyTvLink()">🔗 Kopieer link</button>
+          <button class="btn secondary" style="flex:1;" onclick="openTvHere()">Open hier</button>
+        </div>
+      </div>
       <div class="card" id="waiting-manage-card" style="display:none;width:100%;"><div class="card-title" style="margin-bottom:6px;">Spelers beheren</div><div class="card-sub" style="margin-bottom:6px;">Iemand haakte af of staat er dubbel in? Tik op ✕ om die speler te verwijderen.</div><div class="player-list" id="waiting-manage-list"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" id="waiting-start-btn" style="display:none;" onclick="hostStartGame()">Host: Spel starten →</button>
@@ -253,11 +275,12 @@
     <div class="screen-inner centered">
       <span class="waiting-big" style="font-size:44px;">🏆</span>
       <div class="waiting-title">Na Ronde 1</div>
-      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 4 rondes te gaan.</div>
+      <div class="waiting-sub" id="r1score-sub" style="margin-bottom:16px;">Tussenstand — nog 4 rondes te gaan.</div>
       <div class="label-sm" id="r1-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r1"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="go('s-round2-intro')">Verder naar Ronde 2 →</button>
+        <button class="btn amber" id="r1score-next-btn" onclick="advanceFrom(1)">Verder naar Ronde 2 →</button>
+        <div class="label-sm" id="r1score-wait-msg" style="display:none;">Wachten op de host...</div>
       </div>
     </div>
   </div>
@@ -307,7 +330,7 @@
     <div class="screen-inner centered">
       <span class="waiting-big" style="font-size:44px;">📸</span>
       <div class="waiting-title">Na Ronde 2</div>
-      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 3 rondes te gaan.</div>
+      <div class="waiting-sub" id="r2score-sub" style="margin-bottom:16px;">Tussenstand — nog 3 rondes te gaan.</div>
       <div class="between-rounds">
         <div class="br-icon">🎭</div>
         <div class="br-title">Eerst een bonus: favoriete foto, dan Ronde 3</div>
@@ -316,7 +339,7 @@
       <div class="label-sm" id="r2-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r2"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" id="r2score-host-btn" style="display:none;" onclick="hostStartHotOrNot()">Bonus: favoriete foto →</button>
+        <button class="btn amber" id="r2score-host-btn" style="display:none;" onclick="advanceFrom(2)">Bonus: favoriete foto →</button>
         <div class="label-sm" id="r2score-wait-msg">Wachten op de host...</div>
       </div>
     </div>
@@ -389,7 +412,7 @@
     <div class="screen-inner centered">
       <span class="waiting-big" style="font-size:44px;">🕵️</span>
       <div class="waiting-title">Na Ronde 3</div>
-      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 2 rondes te gaan.</div>
+      <div class="waiting-sub" id="r3score-sub" style="margin-bottom:16px;">Tussenstand — nog 2 rondes te gaan.</div>
       <div class="between-rounds">
         <div class="br-icon">🎵</div>
         <div class="br-title">Ronde 4 komt eraan</div>
@@ -398,7 +421,8 @@
       <div class="label-sm" id="r3-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r3"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="goRound4Intro()">Verder naar Ronde 4 →</button>
+        <button class="btn amber" id="r3score-next-btn" onclick="advanceFrom(3)">Verder naar Ronde 4 →</button>
+        <div class="label-sm" id="r3score-wait-msg" style="display:none;">Wachten op de host...</div>
       </div>
     </div>
   </div>
@@ -458,11 +482,12 @@
     <div class="screen-inner centered">
       <span class="waiting-big" style="font-size:44px;">🎭</span>
       <div class="waiting-title">Na Ronde 4</div>
-      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 1 ronde te gaan: de Biecht-Finale!</div>
+      <div class="waiting-sub" id="r4score-sub" style="margin-bottom:16px;">Tussenstand — nog 1 ronde te gaan: de Biecht-Finale!</div>
       <div class="label-sm" id="r4-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r4"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="goRound5Intro()">Naar Ronde 5: Biecht-Finale →</button>
+        <button class="btn amber" id="r4score-next-btn" onclick="advanceFrom(4)">Naar Ronde 5: Biecht-Finale →</button>
+        <div class="label-sm" id="r4score-wait-msg" style="display:none;">Wachten op de host...</div>
       </div>
     </div>
   </div>
@@ -529,12 +554,18 @@
     <div class="screen-inner centered">
       <span class="waiting-big" style="font-size:48px;">🏆</span>
       <div class="waiting-title">Eindstand</div>
-      <div class="waiting-sub" style="margin-bottom:4px;">Vijf rondes verder — dit is wie jullie écht zijn.</div>
+      <div class="waiting-sub" style="margin-bottom:4px;">Alle rondes gespeeld — dit is wie jullie écht zijn.</div>
       <div class="final-podium" id="final-podium"></div>
       <div class="card" style="width:100%;display:none;" id="most-unmasked"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-final"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" onclick="go('s-home')">Terug naar home</button>
+        <button class="btn secondary" id="share-final-btn" style="margin-bottom:10px;" onclick="shareFinalImage()">📤 Deel de eindstand</button>
+        <div id="rematch-host" style="display:none;">
+          <button class="btn amber" style="margin-bottom:10px;" onclick="rematchClick(true)">🔁 Nog een potje (zelfde dossiers)</button>
+          <button class="btn secondary" style="margin-bottom:10px;" onclick="rematchClick(false)">📝 Nieuw spel, nieuw dossier</button>
+        </div>
+        <div class="label-sm" id="rematch-guest" style="display:none;margin-bottom:10px;">De host kan nog een potje starten — blijf gerust op dit scherm.</div>
+        <button class="btn ghost" onclick="leaveAfterFinal()">Terug naar home</button>
       </div>
     </div>
   </div>
@@ -553,10 +584,19 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=43"></script>
-<script src="backend.js?v=43"></script>
-<script src="youtube-config.js?v=43"></script>
-<script src="youtube.js?v=43"></script>
-<script src="script.js?v=43"></script>
+
+  <!-- TV-SCHERM (optioneel, enkel kijken) -->
+  <div class="screen" id="s-tv">
+    <div class="tv-wrap">
+      <div class="tv-top"><div class="tv-brand">Un<span>masked</span></div><div class="tv-code" id="tv-code"></div></div>
+      <div class="tv-main" id="tv-main"></div>
+    </div>
+  </div>
+
+<script src="firebase-config.js?v=44"></script>
+<script src="backend.js?v=44"></script>
+<script src="youtube-config.js?v=44"></script>
+<script src="youtube.js?v=44"></script>
+<script src="script.js?v=44"></script>
 </body>
 </html>

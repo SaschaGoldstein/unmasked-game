@@ -157,8 +157,38 @@ let latestLobby = null;
 // zelf ook meteen bij te werken, ziet niets in de app ooit nog die
 // tussentijdse verouderde staat.
 function updateLocalLobby(patch) {
-  latestLobby = { ...latestLobby, ...patch };
+  latestLobby = hydrateGuesses({ ...latestLobby, ...patch });
   return latestLobby;
+}
+
+// Eigen gok meteen lokaal tonen (optimistic update) in de juiste emmer van
+// lobby.guesses — zie hydrateGuesses in backend.js.
+function localGuess(key, value) {
+  const guesses = { ...((latestLobby && latestLobby.guesses) || {}) };
+  guesses[key] = { ...(guesses[key] || {}), [Session.playerId]: { guess: value, at: serverNow() } };
+  return updateLocalLobby({ guesses });
+}
+
+// ── Foto's ──
+// Staan sinds deze versie in een apart document per speler (zie
+// submitPhoto in backend.js). Elk toestel haalt ze één keer op en
+// bewaart ze hier; in de lobby zelf staat enkel p.photo = { has, mask... }.
+const photoCache = {};
+const photoLoading = {};
+function hasPhoto(p) { return !!(p && p.photo && (p.photo.has || p.photo.url)); }
+function photoUrlFor(p) { return (p && (photoCache[p.id] || (p.photo && p.photo.url))) || ''; }
+function loadPhoto(playerId) {
+  if (photoCache[playerId]) return Promise.resolve(photoCache[playerId]);
+  if (!photoLoading[playerId]) {
+    photoLoading[playerId] = Backend.getPhotoData(Session.code, playerId)
+      .then((url) => { if (url) photoCache[playerId] = url; return url; })
+      .catch(() => null)
+      .finally(() => { delete photoLoading[playerId]; });
+  }
+  return photoLoading[playerId];
+}
+function prefetchPhotos(lobby) {
+  (lobby.players || []).forEach(p => { if (p.photo && p.photo.has && !photoCache[p.id]) loadPhoto(p.id); });
 }
 
 function go(screenId) {
@@ -166,13 +196,18 @@ function go(screenId) {
   document.getElementById(screenId).classList.add('active');
   window.scrollTo(0, 0);
   const leaveBtn = document.getElementById('leave-game-btn');
-  if (leaveBtn) leaveBtn.style.display = (screenId === 's-home') ? 'none' : 'flex';
+  if (leaveBtn) leaveBtn.style.display = (screenId === 's-home' || screenId === 's-tv') ? 'none' : 'flex';
+  document.body.classList.toggle('in-game', !['s-home', 's-create', 's-join', 's-resume', 's-tv'].includes(screenId));
 }
 
 // Ontsnappingsluik voor als er ergens iets vastloopt — zonder dit moest
 // je de hele URL opnieuw laden om terug bij af te geraken.
 function leaveGame() {
-  if (!window.confirm('Spel verlaten en teruggaan naar het startscherm?')) return;
+  const hostInLobby = Session.isHost && latestLobby && latestLobby.phase === 'lobby';
+  const msg = hostInLobby
+    ? 'Lobby verlaten? Je bent de host — zonder jou kan de groep niet starten.'
+    : 'Spel verlaten en teruggaan naar het startscherm?';
+  if (!window.confirm(msg)) return;
   // Nog vóór de start: jezelf uit de lobby halen, anders blijf je voor de
   // rest als "Bezig..." in de lijst staan.
   const removeSelf = (Session.code && Session.playerId && !Session.isHost && latestLobby && latestLobby.phase === 'lobby')
@@ -413,13 +448,20 @@ function pickSessionQuestions() {
   const usePlayers = useReal ? realPlayersFormatted : PLAYERS;
   // Resolve one specific answer per question now, once, so every player's
   // screen shows the exact same quote — not a per-client random pick.
+  const usedKeys = new Set((latestLobby && latestLobby.usedQuestionKeys) || []);
   const resolved = pools.map(p => {
-    const chosen = p.answers[Math.floor(Math.random() * p.answers.length)];
+    const fresh = p.answers.filter(a => !usedKeys.has(p.label + '|' + a.player));
+    const from = fresh.length ? fresh : p.answers;
+    const chosen = from[Math.floor(Math.random() * from.length)];
     return { label: p.label, answerText: chosen.text, correctPlayer: chosen.player };
   });
   // Eerlijke mix: pas als elke speler minstens 1 vraag heeft, mag iemand
   // een 2e krijgen — anders kan toeval dezelfde persoon telkens featuren.
-  const questions = pickFairMix(resolved, ROUND_ITEM_CAP, (item) => item.correctPlayer);
+  // Na "Nog een potje": eerst vragen die nog niet gesteld werden.
+  const used = new Set((latestLobby && latestLobby.usedQuestionKeys) || []);
+  const isUsed = (r) => used.has(r.label + '|' + r.correctPlayer);
+  const questions = pickFairMix(resolved.filter(r => !isUsed(r)), itemCap(), (item) => item.correctPlayer);
+  if (questions.length < itemCap()) questions.push(...pickFairMix(resolved.filter(isUsed), itemCap() - questions.length, (item) => item.correctPlayer));
   return { questions: shuffle(questions), usePlayers };
 }
 
@@ -445,13 +487,16 @@ const SCREEN_SEQUENCE = [
 ];
 
 const PHASE_SYNC = {
-  'round1-intro': { screen: 's-round1-intro', action: () => go('s-round1-intro') },
+  'round1-intro': { screen: 's-round1-intro', action: () => goRoundIntro(1) },
+  'round2-intro': { screen: 's-round2-intro', action: () => goRoundIntro(2) },
+  'round4-intro': { screen: 's-round4-intro', action: () => goRoundIntro(4) },
+  'round5-intro': { screen: 's-round5-intro', action: () => goRoundIntro(5) },
   'quickfire-active': { screen: 's-round1-q', action: () => go('s-round1-q') },
   'quickfire-score': { screen: 's-round1-score', action: () => showScoreR1() },
   'photoround-active': { screen: 's-round2-q', action: () => go('s-round2-q') },
   'photoround-score': { screen: 's-round2-score', action: () => showScoreR2() },
   'hotornot': { screen: 's-hotornot', action: () => go('s-hotornot') },
-  'round3-intro': { screen: 's-round3-intro', action: () => go('s-round3-intro') },
+  'round3-intro': { screen: 's-round3-intro', action: () => goRoundIntro(3) },
   'verhoor-active': { screen: 's-round3-q', action: () => go('s-round3-q') },
   'round3-score': { screen: 's-round3-score', action: () => showScoreR3() },
   'soundtrack-active': { screen: 's-round4-soundtrack-q', action: () => go('s-round4-soundtrack-q') },
@@ -502,6 +547,7 @@ function renderAllScreens(lobby) {
 const SCORE_SCREENS = { 's-round1-score': 1, 's-round2-score': 2, 's-round3-score': 3, 's-round4-score': 4 };
 
 function renderSkipNote(round) {
+  updateScoreNav(round);
   const el = document.getElementById(`r${round}-skip-note`);
   if (!el) return;
   const note = latestLobby && latestLobby.skipNotes && latestLobby.skipNotes['r' + round];
@@ -526,6 +572,7 @@ function refreshActiveScoreboard() {
     renderFinalPodium(all);
     buildScoreboard('scoreboard-final');
     renderMostUnmasked(all);
+    renderRematchButtons();
   }
 }
 
@@ -555,7 +602,10 @@ function subscribeLobby() {
       Session.isHost = amHost;
       persistHostFlag();
     }
+    hydrateGuesses(lobby);
+    if (handleGameNumberChange(lobby)) return;
     latestLobby = lobby;
+    if (lobby.phase !== 'lobby') prefetchPhotos(lobby);
     syncToLobbyPhase(lobby);
     renderAllScreens(lobby);
   });
@@ -596,7 +646,7 @@ function removeBtnHtml(p) {
 // spel al 90 seconden niets meer gebeurd is (geen enkele update van de
 // lobby) — dan is de host waarschijnlijk weg (telefoon leeg, app dicht).
 const HOST_IDLE_TAKEOVER_MS = 90 * 1000;
-const NO_TAKEOVER_SCREENS = ['s-home', 's-create', 's-join', 's-resume', 's-lobby', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting', 's-round5-final', 's-history'];
+const NO_TAKEOVER_SCREENS = ['s-tv', 's-home', 's-create', 's-join', 's-resume', 's-lobby', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting', 's-round5-final', 's-history'];
 
 function updateTakeoverButton() {
   const btn = document.getElementById('takeover-btn');
@@ -794,6 +844,7 @@ function renderLobbyScreen(lobby) {
   const gameNameEl = document.getElementById('lobby-gamename');
   if (gameNameEl) gameNameEl.textContent = lobby.gameName || '—';
   document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length})`;
+  document.getElementById('lobby-tv-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
       <div class="avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div>
@@ -829,6 +880,7 @@ function renderWaitingScreen(lobby) {
   minPlayersMsg.style.display = (Session.isHost && !enoughPlayers) ? 'block' : 'none';
   minPlayersMsg.textContent = `Nog minstens ${MIN_PLAYERS - lobby.players.length} speler(s) nodig om te starten (minimum ${MIN_PLAYERS}).`;
   document.getElementById('waiting-nothost-msg').style.display = Session.isHost ? 'none' : 'block';
+  renderSettingsCard(lobby);
   document.getElementById('waiting-few-players-tip').style.display = (Session.isHost && lobby.players.length === 2) ? 'block' : 'none';
   const others = lobby.players.filter(p => p.id !== Session.playerId);
   const showManage = Session.isHost && others.length > 0 && lobby.phase === 'lobby';
@@ -845,8 +897,125 @@ function renderWaitingScreen(lobby) {
 }
 
 async function hostStartGame() {
-  await withRetry(() => GameOps.setPhase(Session.code, 'round1-intro'));
-  go('s-round1-intro');
+  await advanceFrom(0);
+}
+
+// ── Spelinstellingen (host, vóór de start) ──
+// Speelduur = hoeveel items per ronde; rondes kunnen aan/uit. De bonus
+// "favoriete foto" kan enkel als Ronde 2 (de foto's) ook meespeelt.
+const LENGTH_ITEMS = { kort: 5, normaal: 8, lang: 12 };
+const ROUND_LABELS = { r1: 'Ronde 1 · Quick Fire', r2: 'Ronde 2 · Unmasked (foto\'s)', fav: 'Bonus · Favoriete foto', r3: 'Ronde 3 · Verhoor', r4: 'Ronde 4 · Soundtrack & Spirit', r5: 'Ronde 5 · Biecht-Finale' };
+function getSettings(lobby = latestLobby) {
+  const st = (lobby && lobby.settings) || {};
+  return { length: LENGTH_ITEMS[st.length] ? st.length : 'normaal', rounds: { r1: true, r2: true, fav: true, r3: true, r4: true, r5: true, ...(st.rounds || {}) } };
+}
+function itemCap() { return LENGTH_ITEMS[getSettings().length]; }
+function stepEnabled(step) {
+  const r = getSettings().rounds;
+  if (step === 'fav') return r.fav && r.r2;
+  return !!r['r' + step];
+}
+
+async function setLengthClick(len) {
+  if (!Session.isHost) return;
+  const st = getSettings();
+  try { await withRetry(() => GameOps.setSettings(Session.code, { ...st, length: len })); } catch (e) { /* volgende tik probeert opnieuw */ }
+}
+
+async function toggleRoundClick(key, on) {
+  if (!Session.isHost) return;
+  const st = getSettings();
+  const rounds = { ...st.rounds, [key]: on };
+  if (!['r1', 'r2', 'r3', 'r4', 'r5'].some(k => rounds[k])) { window.alert('Laat minstens één ronde aan staan.'); renderWaitingScreen(latestLobby); return; }
+  try { await withRetry(() => GameOps.setSettings(Session.code, { ...st, rounds })); } catch (e) { /* negeren */ }
+}
+
+function renderSettingsCard(lobby) {
+  const card = document.getElementById('settings-card');
+  if (!card) return;
+  const show = Session.isHost && lobby.phase === 'lobby';
+  card.style.display = show ? 'block' : 'none';
+  document.getElementById('tv-card').style.display = Session.isHost ? 'block' : 'none';
+  if (!show) return;
+  const st = getSettings(lobby);
+  document.querySelectorAll('#settings-length .seg-btn').forEach(b => b.classList.toggle('selected', b.dataset.len === st.length));
+  document.getElementById('settings-rounds').innerHTML = Object.keys(ROUND_LABELS).map(k => {
+    const disabled = k === 'fav' && !st.rounds.r2;
+    return `<label class="round-toggle"><input type="checkbox" ${st.rounds[k] && !disabled ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="toggleRoundClick('${k}', this.checked)"> ${esc(ROUND_LABELS[k])}</label>`;
+  }).join('');
+}
+
+// ── Rondevolgorde ──
+// Alle "Verder"-knoppen lopen via advanceFrom(): die zoekt de volgende
+// ronde die aan staat. De host zet de fase (zodat iedereen meegaat),
+// gewone spelers gaan enkel lokaal alvast naar het intro-scherm.
+const ROUND_ORDER = [1, 2, 'fav', 3, 4, 5];
+function nextStepAfter(step) {
+  const from = step === 0 ? -1 : ROUND_ORDER.indexOf(step);
+  for (let i = from + 1; i < ROUND_ORDER.length; i++) if (stepEnabled(ROUND_ORDER[i])) return ROUND_ORDER[i];
+  return 'final';
+}
+function roundsLeftAfter(step) {
+  const from = ROUND_ORDER.indexOf(step);
+  return ROUND_ORDER.slice(from + 1).filter(x => typeof x === 'number' && stepEnabled(x)).length;
+}
+
+function goRoundIntro(n) {
+  go(`s-round${n}-intro`);
+  const lobby = latestLobby || {};
+  if (n === 1) renderRound1Intro(lobby);
+  else if (n === 2) renderRound2Intro(lobby);
+  else if (n === 3) renderVerhoor(lobby);
+  else if (n === 4) renderRound4Intro(lobby);
+  else if (n === 5) renderRound5Intro(lobby);
+}
+
+const advancing = {};
+async function advanceFrom(step) {
+  if (advancing[step]) return;
+  advancing[step] = true;
+  try {
+    const next = nextStepAfter(step);
+    if (!Session.isHost) {
+      if (typeof next === 'number') goRoundIntro(next);
+      return;
+    }
+    if (typeof next === 'number') {
+      await withRetry(() => GameOps.setPhase(Session.code, `round${next}-intro`));
+      updateLocalLobby({ phase: `round${next}-intro` });
+      goRoundIntro(next);
+    } else if (next === 'fav') {
+      await hostStartHotOrNot();
+    } else {
+      await withRetry(() => GameOps.setPhase(Session.code, 'final'));
+      showFinal();
+    }
+  } finally {
+    advancing[step] = false;
+  }
+}
+
+function stepLabel(next) {
+  if (next === 'fav') return 'Bonus: favoriete foto →';
+  if (next === 'final') return 'Naar de eindstand →';
+  return next === 5 ? 'Naar Ronde 5: Biecht-Finale →' : `Verder naar Ronde ${next} →`;
+}
+
+function updateScoreNav(round) {
+  const next = nextStepAfter(round);
+  const left = roundsLeftAfter(round);
+  const sub = document.getElementById(`r${round}score-sub`);
+  if (sub) sub.textContent = left > 0 ? `Tussenstand — nog ${left} ronde${left === 1 ? '' : 's'} te gaan.` : 'Tussenstand — op naar de eindstand!';
+  const between = document.querySelector(`#s-round${round}-score .between-rounds`);
+  if (between) between.style.display = (round === 2 ? next === 'fav' : next === round + 1) ? '' : 'none';
+  const btn = document.getElementById(round === 2 ? 'r2score-host-btn' : `r${round}score-next-btn`);
+  if (!btn) return;
+  btn.textContent = stepLabel(next);
+  const guestCanGo = typeof next === 'number';
+  const showBtn = Session.isHost || (round !== 2 && guestCanGo);
+  btn.style.display = showBtn ? 'block' : 'none';
+  const wait = document.getElementById(`r${round}score-wait-msg`);
+  if (wait) wait.style.display = showBtn ? 'none' : 'block';
 }
 
 function goDossier() {
@@ -1290,6 +1459,7 @@ function renderQuickFire(lobby) {
     if (lastFlashedQFIndex !== qf.index) {
       lastFlashedQFIndex = qf.index;
       flashTimerZero('r1-timer-ring');
+      Sound.reveal(myGuess ? (myGuess.guess === q.correctPlayer) : null);
       // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
       // iedereen de tijd heeft om het resultaat te lezen in plaats van
       // meteen door te moeten klikken.
@@ -1330,6 +1500,7 @@ function tickQFCountdown() {
   const elapsed = (serverNow() - qf.questionStartAt) / 1000;
   const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
   document.getElementById('timer-num').textContent = Math.ceil(remaining);
+  Sound.countdown('qf' + qf.index, remaining);
   document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
   // Elke speler probeert dit, niet enkel de host: een tabblad op de
   // achtergrond (scherm op slot, andere app) kan door de browser worden
@@ -1352,8 +1523,8 @@ function tickQFCountdown() {
 async function submitQFGuess(name) {
   if (!latestLobby || !latestLobby.quickfire) return;
   const qf = latestLobby.quickfire;
-  const answers = { ...(qf.answers || {}), [Session.playerId]: { guess: name, at: serverNow() } };
-  renderQuickFire(updateLocalLobby({ quickfire: { ...qf, answers } }));
+  if ((qf.answers || {})[Session.playerId] || qf.revealed) return;
+  renderQuickFire(localGuess('qf_' + qf.index, name));
   try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name, qf.index)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
 }
 
@@ -1429,7 +1600,7 @@ function renderRound2Intro(lobby) {
 
 function pickRound2Photos() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const withPhotos = lobbyPlayers.filter(p => p.photo && p.photo.url);
+  const withPhotos = lobbyPlayers.filter(hasPhoto);
   // Zelfde drempel als Ronde 1: zodra er een echte groep is (2+ spelers
   // met een foto), nooit testspelers erbij mengen. En net als Ronde 1
   // hoeft niet IEDEREEN aan bod te komen — bij een grote groep zou dat
@@ -1438,7 +1609,7 @@ function pickRound2Photos() {
   if (Session.code || (lobbyPlayers.length >= 2 && withPhotos.length >= 2)) {
     return {
       usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
-      photos: shuffle(withPhotos).slice(0, ROUND_ITEM_CAP).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
+      photos: shuffle(withPhotos).slice(0, itemCap()).map(p => ({ playerId: p.id, mask: p.photo, player: p.name })),
     };
   }
   return { usePlayers: PLAYERS, photos: shuffle(R2_PHOTOS) };
@@ -1452,6 +1623,8 @@ async function hostStartRound2() {
     showScoreR2();
     return;
   }
+  // Foto's eerst zelf binnenhalen, zodat de host niet met een leeg vak start.
+  await Promise.all(picked.photos.filter(ph => ph.playerId).map(ph => loadPhoto(ph.playerId)));
   const photoRound = { photos: picked.photos, usePlayers: picked.usePlayers, index: 0, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setPhotoRound(Session.code, photoRound));
   await withRetry(() => GameOps.setPhase(Session.code, 'photoround-active'));
@@ -1475,9 +1648,17 @@ function renderPhotoRound(lobby) {
     document.getElementById('r2-pts-flash').textContent = '';
     document.getElementById('r2-zoom-hint').textContent = 'Foto zoomt uit... raad wie het is!';
     photoEl.style.transition = 'none';
-    if (photo.photo) {
+    const r2Url = photo.playerId ? photoCache[photo.playerId] : photo.photo;
+    if (photo.playerId && !r2Url) {
+      // Nog niet binnen — ophalen en dan opnieuw tekenen.
+      const idx = pr.index;
+      loadPhoto(photo.playerId).then(() => {
+        if (latestLobby && latestLobby.photoRound && latestLobby.photoRound.index === idx) { lastRenderedPhotoIndex = -1; renderPhotoRound(latestLobby); }
+      });
+    }
+    if (photo.playerId || photo.photo) {
       photoEl.textContent = '';
-      photoEl.style.backgroundImage = `url(${safeImg(photo.photo)})`;
+      photoEl.style.backgroundImage = r2Url ? `url(${safeImg(r2Url)})` : 'none';
       photoEl.style.backgroundSize = 'cover';
       photoEl.style.backgroundPosition = 'center';
       const m = photo.mask;
@@ -1522,13 +1703,14 @@ function renderPhotoRound(lobby) {
     clearInterval(photoRoundTicker);
     if (lastFlashedPhotoIndex !== pr.index) {
       lastFlashedPhotoIndex = pr.index;
+      Sound.reveal(myGuess ? (myGuess.guess === photo.player) : null);
       // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
       // iedereen de tijd heeft om het resultaat te lezen.
       setTimeout(() => { photoNextBtnReady[pr.index] = true; renderPhotoRound(latestLobby); }, NEXT_BTN_DELAY_MS);
       // Vastleggen vóór "Volgende foto" deze pr.answers alweer leegmaakt —
       // zie openHistoryViewer('photoRound') hierboven.
       photoHistory.push({
-        photo: photo.photo, emoji: photo.emoji, player: photo.player,
+        photo: photo.playerId ? photoCache[photo.playerId] : photo.photo, emoji: photo.emoji, player: photo.player,
         guesses: Object.entries(pr.answers || {}).map(([voterId, a]) => {
           const voter = lobby.players.find(p => p.id === voterId);
           // Zelfde uitsluiting als revealPhotoRound in backend.js — een
@@ -1591,6 +1773,7 @@ function tickPhotoRound() {
   const progress = Math.min(1, elapsed / PHOTOROUND_SECONDS);
   document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
   document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
+  Sound.countdown('pr' + pr.index, PHOTOROUND_SECONDS * (1 - progress));
   // Iedereen krijgt de volle tijd om te antwoorden — de ronde onthult
   // pas als de tijd om is, niet zodra de eerste speler het goed heeft.
   // De puntenverdeling (zie revealPhotoRound in backend.js) beloont wie
@@ -1607,8 +1790,8 @@ function tickPhotoRound() {
 async function submitPhotoGuess(name) {
   if (!latestLobby || !latestLobby.photoRound) return;
   const pr = latestLobby.photoRound;
-  const answers = { ...(pr.answers || {}), [Session.playerId]: { guess: name, at: serverNow() } };
-  renderPhotoRound(updateLocalLobby({ photoRound: { ...pr, answers } }));
+  if ((pr.answers || {})[Session.playerId] || pr.revealed) return;
+  renderPhotoRound(localGuess('pr_' + pr.index, name));
   try { await withRetry(() => GameOps.submitPhotoGuess(Session.code, Session.playerId, name, pr.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
@@ -1646,7 +1829,8 @@ function liveStandings() {
   })).sort((a, b) => b.pts - a.pts);
 }
 
-function buildScoreboard(containerId, myScoreFallback) {
+const lastBoardHtml = {};
+function buildScoreboard(containerId, myScoreFallback, animate = false) {
   let all = liveStandings();
   if (!all) {
     const others = PLAYERS.filter(p => p.name !== 'Sander').map(p => ({ name: p.name, pts: rand(4, 13), color: p.color }));
@@ -1654,28 +1838,36 @@ function buildScoreboard(containerId, myScoreFallback) {
   }
   const max = all[0].pts || 1;
   const ranks = ['🥇', '🥈', '🥉', '4', '5', '6'];
-  document.getElementById(containerId).innerHTML = all.map((s, i) => `
+  const boardEl = document.getElementById(containerId);
+  const html = all.map((s, i) => `
     <div class="score-row">
       <div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] ?? (i + 1)}</div>
       <div style="flex:1">
         <div class="score-name" style="${s.you ? 'color:var(--accent);font-weight:600;' : ''}">${esc(s.name)}</div>
         <div style="margin-top:5px;background:var(--card-border);border-radius:3px;height:5px;overflow:hidden;">
-          <div style="height:100%;width:${Math.round((s.pts / max) * 100)}%;background:${s.you ? 'var(--accent)' : 'var(--text-muted)'};border-radius:3px;"></div>
+          <div class="score-bar" style="height:100%;width:${Math.max(0, Math.round((s.pts / max) * 100))}%;background:${s.you ? 'var(--accent)' : 'var(--text-muted)'};border-radius:3px;animation-delay:${i * 0.08}s;"></div>
         </div>
       </div>
       <div class="score-pts">${s.pts} pt</div>
     </div>`).join('');
+  // Niet opnieuw tekenen als er niets veranderde — anders zou elke update
+  // (bv. een gok van iemand) de animatie onderbreken.
+  if (!animate && lastBoardHtml[containerId] === html) return;
+  lastBoardHtml[containerId] = html;
+  boardEl.classList.toggle('scoreboard-animate', animate);
+  boardEl.innerHTML = html;
+  if (animate) boardEl.querySelectorAll('.score-row').forEach((r, i) => { r.style.animationDelay = (i * 0.08) + 's'; });
 }
 
 function showScoreR1() {
   clearInterval(qfCountdownTimer);
-  buildScoreboard('scoreboard-r1', 0);
+  buildScoreboard('scoreboard-r1', 0, true);
   renderSkipNote(1);
   go('s-round1-score');
 }
 function showScoreR2() {
   clearInterval(photoRoundTicker);
-  buildScoreboard('scoreboard-r2', 0);
+  buildScoreboard('scoreboard-r2', 0, true);
   renderSkipNote(2);
   document.getElementById('r2score-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r2score-wait-msg').style.display = Session.isHost ? 'none' : 'block';
@@ -1689,7 +1881,7 @@ function showScoreR2() {
 
 function pickFavoriteCandidates() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const withPhotos = lobbyPlayers.filter(p => p.photo && p.photo.url);
+  const withPhotos = lobbyPlayers.filter(hasPhoto);
   const shownNames = latestLobby && latestLobby.photoRound ? latestLobby.photoRound.photos.map(ph => ph.player) : null;
   const pool = shownNames ? withPhotos.filter(p => shownNames.includes(p.name)) : withPhotos;
   return shuffle(pool.map(p => p.id));
@@ -1699,9 +1891,7 @@ async function hostStartHotOrNot() {
   const candidates = pickFavoriteCandidates();
   if (candidates.length < 2) {
     // Met minder dan 2 foto's valt er niets te kiezen — meteen door.
-    await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
-    go('s-round3-intro');
-    renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
+    await advanceFrom('fav');
     return;
   }
   const fav = { stage: 'favorite', candidates, votes: {} };
@@ -1736,7 +1926,9 @@ function renderHotOrNot(lobby) {
     if (myVote === id) d.classList.add('pending');
     if (showResults && maxVotes > 0 && tally[id] === maxVotes) d.classList.add('winner');
     const count = showResults ? ` · ${tally[id] || 0} 🗳` : '';
-    d.innerHTML = `<div class="fav-photo" style="background-image:url(${safeImg(p.photo.url)});"></div><div class="fav-name">${esc(p.name)}${own ? ' (jij)' : ''}${count}</div>`;
+    const favUrl = photoUrlFor(p);
+    if (!favUrl) loadPhoto(p.id).then(u => { if (u && latestLobby) renderHotOrNot(latestLobby); });
+    d.innerHTML = `<div class="fav-photo" style="background-image:url(${safeImg(favUrl)});"></div><div class="fav-name">${esc(p.name)}${own ? ' (jij)' : ''}${count}</div>`;
     if (!own && !myVote) d.onclick = () => castFavoriteVote(id);
     grid.appendChild(d);
   });
@@ -1760,15 +1952,12 @@ async function castFavoriteVote(targetId) {
   if (!latestLobby || !latestLobby.hotornot) return;
   const fav = latestLobby.hotornot;
   if ((fav.votes || {})[Session.playerId] || targetId === Session.playerId) return;
-  const votes = { ...(fav.votes || {}), [Session.playerId]: targetId };
-  renderHotOrNot(updateLocalLobby({ hotornot: { ...fav, votes } }));
+  renderHotOrNot(localGuess('fav', targetId));
   try { await withRetry(() => GameOps.voteFavoritePhoto(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function nextHotOrNot() {
-  await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
-  go('s-round3-intro');
-  renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
+  await advanceFrom('fav');
 }
 
 // ── Ronde 3: Verhoor (live, host-gestuurd) ─
@@ -1800,7 +1989,7 @@ function pickRound3Confessions() {
   if (Session.code && real.length === 0) return null; // echte lobby zonder bekentenissen → ronde overslaan
   if (Session.code || real.length >= 2) {
     return {
-      list: shuffle(real).slice(0, Math.min(ROUND_ITEM_CAP, real.length)),
+      list: shuffle(real).slice(0, itemCap()),
       players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
     };
   }
@@ -1883,6 +2072,7 @@ function renderVerhoor(lobby) {
     if (lastFlashedVerhoorIndex !== v.index) {
       lastFlashedVerhoorIndex = v.index;
       flashTimerZero('r3-timer-ring');
+      Sound.reveal(myGuess ? (myGuess.guess === q.playerId) : null);
       // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
       // iedereen de tijd heeft om het resultaat te lezen.
       setTimeout(() => { verhoorNextBtnReady[v.index] = true; renderVerhoor(latestLobby); }, NEXT_BTN_DELAY_MS);
@@ -1924,6 +2114,7 @@ function tickVerhoorCountdown() {
   const elapsed = (serverNow() - v.questionStartAt) / 1000;
   const remaining = Math.max(0, VERHOOR_SECONDS - elapsed);
   document.getElementById('r3-timer-num').textContent = Math.ceil(remaining);
+  Sound.countdown('vh' + v.index, remaining);
   document.getElementById('r3-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / VERHOOR_SECONDS));
   // Elke speler probeert dit, niet enkel de host — zie de uitleg bij
   // tickQFCountdown. GameOps.revealVerhoor is atomair en veilig bij
@@ -1937,8 +2128,8 @@ function tickVerhoorCountdown() {
 async function submitMyVerhoorGuess(targetId) {
   if (!latestLobby || !latestLobby.verhoor) return;
   const v = latestLobby.verhoor;
-  const answers = { ...(v.answers || {}), [Session.playerId]: { guess: targetId, at: serverNow() } };
-  renderVerhoor(updateLocalLobby({ verhoor: { ...v, answers } }));
+  if ((v.answers || {})[Session.playerId] || v.revealed) return;
+  renderVerhoor(localGuess('vh_' + v.index, targetId));
   try { await withRetry(() => GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId, v.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
@@ -1964,7 +2155,7 @@ async function hostNextVerhoor() {
 
 function showScoreR3() {
   clearInterval(verhoorCountdownTimer);
-  buildScoreboard('scoreboard-r3', 0);
+  buildScoreboard('scoreboard-r3', 0, true);
   renderSkipNote(3);
   go('s-round3-score');
 }
@@ -2023,7 +2214,7 @@ async function hostStartRound4() {
 // aan nummers die toch niet gebruikt worden.
 async function pickSoundtrack() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const withSongs = shuffle(lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim())).slice(0, ROUND_ITEM_CAP);
+  const withSongs = shuffle(lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim())).slice(0, itemCap());
   if (withSongs.length === 0) return null;
   const canSearchYouTube = typeof youtubeConfigured === 'function' && youtubeConfigured();
   const list = [];
@@ -2042,7 +2233,7 @@ async function pickSoundtrack() {
 }
 
 function showScoreR4() {
-  buildScoreboard('scoreboard-r4', 0);
+  buildScoreboard('scoreboard-r4', 0, true);
   renderSkipNote(4);
   go('s-round4-score');
 }
@@ -2056,6 +2247,7 @@ let lastRenderedSoundtrackIndex = -1;
 let soundtrackPlayedForIndex = -1;
 let soundtrackOptionsCache = [];
 let soundtrackHistory = [];
+let soundtrackRevealSoundFor = -1;
 
 registerHistoryViewer('soundtrack', 'Vorig nummer', () => soundtrackHistory, (item) => `
   <div class="card">
@@ -2156,6 +2348,10 @@ function renderSoundtrack(lobby) {
   }
 
   document.getElementById('st-reveal').style.display = st.revealed ? 'block' : 'none';
+  if (st.revealed && soundtrackRevealSoundFor !== st.index) {
+    soundtrackRevealSoundFor = st.index;
+    Sound.reveal(myOwnerGuess ? (myOwnerGuess.guess === track.playerId) : null);
+  }
   if (st.revealed) {
     const owner = st.players.find(p => p.id === track.playerId);
     document.getElementById('st-reveal-card').innerHTML = `<div class="card-title">Dit was het nummer van ${esc(owner ? owner.name : '?')}!</div><div class="card-sub">${esc(track.trackName)}${track.artist ? ' — ' + esc(track.artist) : ''}</div>`;
@@ -2181,8 +2377,8 @@ function renderSoundtrack(lobby) {
 async function submitSoundtrackOwnerGuess(targetId) {
   if (!latestLobby || !latestLobby.soundtrack) return;
   const st = latestLobby.soundtrack;
-  const ownerAnswers = { ...(st.ownerAnswers || {}), [Session.playerId]: { guess: targetId, at: serverNow() } };
-  renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, ownerAnswers } }));
+  if ((st.ownerAnswers || {})[Session.playerId] || st.stage !== 'guessing') return;
+  renderSoundtrack(localGuess('st_' + st.index, targetId));
   try { await withRetry(() => GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId, st.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
@@ -2211,8 +2407,8 @@ async function hostRevealSoundtrackOwner() {
 async function submitSoundtrackDrinkGuess(drinkText) {
   if (!latestLobby || !latestLobby.soundtrack) return;
   const st = latestLobby.soundtrack;
-  const drinkAnswers = { ...(st.drinkAnswers || {}), [Session.playerId]: drinkText };
-  renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, drinkAnswers } }));
+  if ((st.drinkAnswers || {})[Session.playerId] || st.drinkRevealed) return;
+  renderSoundtrack(localGuess('dr_' + st.index, drinkText));
   try { await withRetry(() => GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText, st.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
@@ -2224,7 +2420,7 @@ async function hostRevealSoundtrackDrinkStep() {
   soundtrackDrinkRevealInFlight = true;
   try {
     const res = await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, st.index));
-    if (res && res.soundtrack) latestLobby = res;
+    if (res && res.soundtrack) latestLobby = hydrateGuesses(res);
     else updateLocalLobby({ soundtrack: { ...st, drinkRevealed: true } });
     renderSoundtrack(latestLobby);
   } finally {
@@ -2246,7 +2442,7 @@ async function hostNextSoundtrack() {
     // veilig om hier nog eens te doen. Resultaat overnemen zodat de bonus
     // al in het scorebord van de host zit.
     const revealed = await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, latestLobby.soundtrack.index));
-    if (revealed && revealed.soundtrack) latestLobby = revealed;
+    if (revealed && revealed.soundtrack) latestLobby = hydrateGuesses(revealed);
     const st = latestLobby.soundtrack;
     // Vastleggen vóór de index hieronder doorschuift en ownerAnswers/
     // drinkAnswers alweer leegmaakt — zie openHistoryViewer('soundtrack')
@@ -2541,7 +2737,7 @@ function renderRound5Intro(lobby) {
 async function hostStartBiechtPlayback() {
   biechtHistory = [];
   biechtHistoryPushedFor = -1;
-  const order = shuffle(latestLobby.players.filter(p => p.voiceReady).map(p => p.id)).slice(0, ROUND_ITEM_CAP);
+  const order = shuffle(latestLobby.players.filter(p => p.voiceReady).map(p => p.id)).slice(0, itemCap());
   if (order.length === 0) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round5-final'));
     showFinal();
@@ -2605,6 +2801,7 @@ async function renderBiecht(lobby) {
       const teller = lobby.players.find(p => p.id === targetId);
       if (biechtHistoryPushedFor !== b.index) {
         biechtHistoryPushedFor = b.index;
+        Sound.reveal(myGuess ? (myGuess.guess === targetId) : null);
         // Vastleggen vóór "Volgende verhaal" deze b.answers alweer
         // leegmaakt — zie openHistoryViewer('biecht') hierboven. De
         // opname zelf blijft wel bewaard in de backend (apart van
@@ -2649,8 +2846,8 @@ async function renderBiecht(lobby) {
 async function submitBiechtGuess(targetId) {
   if (!latestLobby || !latestLobby.biecht) return;
   const b = latestLobby.biecht;
-  const answers = { ...(b.answers || {}), [Session.playerId]: { guess: targetId, at: serverNow() } };
-  renderBiecht(updateLocalLobby({ biecht: { ...b, answers } }));
+  if ((b.answers || {})[Session.playerId] || b.revealed) return;
+  renderBiecht(localGuess('bc_' + b.index, targetId));
   try { await withRetry(() => GameOps.submitBiechtGuess(Session.code, Session.playerId, targetId, b.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
@@ -2712,9 +2909,9 @@ async function hostNextBiechtPlay() {
 async function castBiechtVote(targetId) {
   if (!latestLobby || !latestLobby.biecht) return;
   const b = latestLobby.biecht;
-  const votes = { ...(b.votes || {}), [Session.playerId]: targetId };
-  const updatedBiecht = { ...b, votes };
-  renderBiechtVoting(updateLocalLobby({ biecht: updatedBiecht }), updatedBiecht);
+  if ((b.votes || {})[Session.playerId] || targetId === Session.playerId) return;
+  const l = localGuess('bv', targetId);
+  renderBiechtVoting(l, l.biecht);
   try { await withRetry(() => GameOps.voteBiecht(Session.code, targetId, Session.playerId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
@@ -2729,7 +2926,7 @@ async function finishBiechtVoting() {
   try {
     await withRetry(() => GameOps.finalizeBiechtVote(Session.code));
     const res = await withRetry(() => GameOps.setPhase(Session.code, 'final'));
-    if (res && res.players) latestLobby = res; // bevat de bonuspunten van de stemronde
+    if (res && res.players) latestLobby = hydrateGuesses(res); // bevat de bonuspunten van de stemronde
     showFinal();
   } finally {
     biechtVoteFinalizeInFlight = false;
@@ -2749,9 +2946,11 @@ function showFinal() {
     all = [{ name: 'Sander (jij)', pts: 0, color: '#ff3d6b', you: true }, ...others].sort((a, b) => b.pts - a.pts);
   }
   renderFinalPodium(all);
-  buildScoreboard('scoreboard-final');
+  buildScoreboard('scoreboard-final', 0, true);
   renderMostUnmasked(all);
+  renderRematchButtons();
   go('s-round5-final');
+  Sound.fanfare();
   launchConfetti();
 }
 
@@ -2806,6 +3005,183 @@ function launchConfetti() {
   }
 }
 
+
+// ── Tv-scherm (optioneel) ──
+// De host kan een link openen op een tv/laptop/beamer: daar verschijnen
+// de vraag, de timer, de foto en de scores in het groot. Dat scherm doet
+// niet mee als speler en kan niets wijzigen — het kijkt enkel mee.
+let tvMode = false;
+let tvTimer = null;
+
+function tvLinkUrl() {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('tv', Session.code);
+  if (Session.gameName) url.searchParams.set('spel', Session.gameName);
+  return url.toString();
+}
+
+function copyTvLink() {
+  if (!Session.code) return;
+  navigator.clipboard?.writeText(tvLinkUrl()).catch(() => {});
+  ['tv-copy-btn', 'lobby-tv-btn'].forEach(id => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    const orig = b.textContent;
+    b.textContent = 'Tv-link gekopieerd ✓';
+    setTimeout(() => { b.textContent = orig; }, 2000);
+  });
+}
+
+function openTvHere() { if (Session.code) window.open(tvLinkUrl(), '_blank'); }
+
+function startTvMode(code, gameName) {
+  tvMode = true;
+  Session.code = code; Session.gameName = gameName;
+  go('s-tv');
+  document.getElementById('tv-main').innerHTML = '<div class="tv-sub">Verbinden met de lobby…</div>';
+  let gotSnapshot = false;
+  Backend.subscribe(code, (lobby) => {
+    gotSnapshot = true;
+    hydrateGuesses(lobby);
+    latestLobby = lobby;
+    prefetchPhotos(lobby);
+    renderTv(lobby);
+  });
+  setTimeout(() => { if (!gotSnapshot) document.getElementById('tv-main').innerHTML = '<div class="tv-title">Lobby niet gevonden</div><div class="tv-sub">Controleer de tv-link bij de host.</div>'; }, 8000);
+  tvTimer = setInterval(tvTick, 200);
+}
+
+function tvBoard(lobby) {
+  const rows = [...lobby.players].sort((a, b) => (b.score || 0) - (a.score || 0));
+  const ranks = ['🥇', '🥈', '🥉'];
+  return `<div class="card tv-board">${rows.map((p, i) => `
+    <div class="score-row"><div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] ?? (i + 1)}</div>
+    <div class="score-name" style="text-align:left;">${esc(p.name)}</div><div class="score-pts">${p.score || 0} pt</div></div>`).join('')}</div>`;
+}
+
+function tvGuessCount(lobby, answers) {
+  return `<div class="tv-small">${Object.keys(answers || {}).length} van ${lobby.players.length} hebben gegokt</div>`;
+}
+
+const TV_INTROS = {
+  'round1-intro': ['Ronde 1', 'Quick Fire', 'Een antwoord uit iemands dossier — raad zo snel mogelijk van wie het is.'],
+  'round2-intro': ['Ronde 2', 'Unmasked', 'Een foto zoomt langzaam uit. Wie herken je het eerst?'],
+  'round3-intro': ['Ronde 3', 'Verhoor', 'Een anonieme bekentenis. Wie is de dader?'],
+  'round4-intro': ['Ronde 4', 'Soundtrack & Spirit', 'Ieders lievelingsnummer. Van wie is het — en welk drankje hoort erbij?'],
+  'round5-intro': ['Ronde 5', 'De Biecht-Finale', 'Vervormde stemmen vertellen een verhaal. Van wie is het?'],
+};
+
+function renderTv(lobby) {
+  document.getElementById('tv-code').innerHTML = `${esc(lobby.gameName || '')}<br>Code: <strong>${esc(lobby.code)}</strong>`;
+  const main = document.getElementById('tv-main');
+  const ph = lobby.phase;
+  let h = '';
+  if (ph === 'lobby') {
+    const done = lobby.players.filter(p => p.dossierDone).length;
+    h = `<div class="tv-kicker">Doe mee</div>
+      <div class="tv-title">${esc(buildPlainGameUrl().replace(/^https?:\/\//, ''))}</div>
+      <div class="tv-sub">Code: <strong style="color:var(--accent2);">${esc(lobby.code)}</strong> · Spelnaam: <strong>${esc(lobby.gameName || '')}</strong></div>
+      <div class="tv-players">${lobby.players.map(p => `<span class="pill ${p.dossierDone ? 'done' : ''}">${esc(p.name)}${p.dossierDone ? ' ✓' : ''}</span>`).join('')}</div>
+      <div class="tv-small">${done} van ${lobby.players.length} dossiers klaar</div>`;
+  } else if (TV_INTROS[ph]) {
+    const [k, t, sub] = TV_INTROS[ph];
+    h = `<div class="tv-kicker">${k}</div><div class="tv-title">${esc(t)}</div><div class="tv-sub">${esc(sub)}</div>`;
+  } else if (ph === 'quickfire-active' && lobby.quickfire) {
+    const qf = lobby.quickfire; const q = qf.questions[qf.index];
+    h = `<div class="tv-kicker">Ronde 1 · Vraag ${qf.index + 1} van ${qf.questions.length}</div>
+      <div class="tv-sub">${esc(q.label)}</div><div class="tv-quote">"${esc(q.answerText)}"</div>`;
+    if (qf.revealed) {
+      const right = Object.entries(qf.answers || {}).filter(([id, a]) => a.guess === q.correctPlayer).map(([id]) => (lobby.players.find(p => p.id === id) || {}).name).filter(n => n && n !== q.correctPlayer);
+      h += `<div class="tv-reveal">Het was ${esc(q.correctPlayer)}!</div><div class="tv-small">${right.length ? 'Juist: ' + esc(right.join(', ')) : 'Niemand raadde het.'}</div>`;
+    } else h += `<div class="tv-timer" id="tv-timer"></div>${tvGuessCount(lobby, qf.answers)}`;
+  } else if (ph === 'photoround-active' && lobby.photoRound) {
+    const pr = lobby.photoRound; const photo = pr.photos[pr.index];
+    const url = photo.playerId ? photoCache[photo.playerId] : photo.photo;
+    if (photo.playerId && !url) loadPhoto(photo.playerId).then(() => { if (latestLobby) renderTv(latestLobby); });
+    const m = photo.mask;
+    const mask = (m && m.maskX !== undefined) ? `<div class="r2-mask" style="left:${Number(m.maskX) || 0}%;top:${Number(m.maskY) || 0}%;width:${Number(m.maskScale) || 34}%;">${maskSvgHtml()}</div>` : '';
+    h = `<div class="tv-kicker">Ronde 2 · Foto ${pr.index + 1} van ${pr.photos.length}</div>
+      <div class="tv-photo-stage"><div class="tv-photo" id="tv-photo" style="background-image:url(${safeImg(url)});${pr.revealed ? 'transform:scale(1);' : ''}">${url ? mask : `<div class="tv-title" style="padding-top:20%;">${esc(photo.emoji || '')}</div>`}</div></div>`;
+    h += pr.revealed ? `<div class="tv-reveal">${esc(photo.player)} was het!</div>` : tvGuessCount(lobby, pr.answers);
+  } else if (ph === 'hotornot' && lobby.hotornot) {
+    const fav = lobby.hotornot; const tally = {};
+    Object.values(fav.votes || {}).forEach(id => { tally[id] = (tally[id] || 0) + 1; });
+    h = `<div class="tv-kicker">Bonus</div><div class="tv-title">Favoriete foto</div>
+      <div class="tv-grid">${(fav.candidates || []).map(id => {
+        const p = lobby.players.find(pl => pl.id === id); if (!p) return '';
+        const url = photoUrlFor(p);
+        if (!url) loadPhoto(id).then(() => { if (latestLobby) renderTv(latestLobby); });
+        return `<div class="fav-card"><div class="fav-photo" style="background-image:url(${safeImg(url)});"></div><div class="fav-name">${esc(p.name)} · ${tally[id] || 0} 🗳</div></div>`;
+      }).join('')}</div>`;
+  } else if (ph === 'verhoor-active' && lobby.verhoor) {
+    const v = lobby.verhoor; const q = v.list[v.index];
+    h = `<div class="tv-kicker">Ronde 3 · Bekentenis ${v.index + 1} van ${v.list.length}</div><div class="tv-quote">${esc(q.text)}</div>`;
+    if (v.revealed) {
+      const who = (v.players.find(p => p.id === q.playerId) || {}).name || '?';
+      h += `<div class="tv-reveal">Het was ${esc(who)}!</div>`;
+    } else h += `<div class="tv-timer" id="tv-timer"></div>${tvGuessCount(lobby, v.answers)}`;
+  } else if (ph === 'soundtrack-active' && lobby.soundtrack) {
+    const st = lobby.soundtrack; const track = st.list[st.index];
+    const owner = (st.players.find(p => p.id === track.playerId) || {}).name || '?';
+    h = `<div class="tv-kicker">Ronde 4 · Nummer ${st.index + 1} van ${st.list.length}</div>`;
+    if (!st.revealed) h += `<div class="tv-title">🎵 Van wie is dit nummer?</div>${tvGuessCount(lobby, st.ownerAnswers)}`;
+    else {
+      h += `<div class="tv-reveal">Het nummer van ${esc(owner)}</div><div class="tv-sub">${esc(track.trackName)}${track.artist ? ' — ' + esc(track.artist) : ''}</div>`;
+      h += st.drinkRevealed
+        ? `<div class="tv-title">🥤 ${esc(track.drink || '(geen antwoord)')}</div>`
+        : `<div class="tv-sub">Bonus: welk drankje hoort bij ${esc(owner)}?</div><div class="tv-players">${(st.drinkOptions || []).map(o => `<span class="pill">${esc(o)}</span>`).join('')}</div>`;
+    }
+  } else if (ph === 'biecht-active' && lobby.biecht) {
+    const b = lobby.biecht;
+    if (b.stage === 'voting') {
+      const tally = {};
+      Object.entries(b.votes || {}).forEach(([voter, id]) => { if (voter !== id) tally[id] = (tally[id] || 0) + 1; });
+      h = `<div class="tv-kicker">Ronde 5</div><div class="tv-title">Stem op het beste verhaal</div>
+        <div class="card tv-board">${b.order.map(id => ({ name: (lobby.players.find(p => p.id === id) || {}).name || '?', n: tally[id] || 0 })).sort((a, c) => c.n - a.n)
+          .map(r => `<div class="score-row"><div class="score-name" style="text-align:left;">${esc(r.name)}</div><div class="score-pts">${r.n} 🗳</div></div>`).join('')}</div>`;
+    } else {
+      h = `<div class="tv-kicker">Ronde 5 · Verhaal ${b.index + 1} van ${b.order.length}</div>`;
+      if (b.revealed) h += `<div class="tv-reveal">Het was ${esc((lobby.players.find(p => p.id === b.order[b.index]) || {}).name || '?')}!</div>`;
+      else h += `<div class="tv-title">🎙️ Van wie is dit verhaal?</div>${tvGuessCount(lobby, b.answers)}`;
+    }
+  } else if (['quickfire-score', 'photoround-score', 'round3-score', 'round4-score'].includes(ph)) {
+    h = `<div class="tv-kicker">Tussenstand</div>${tvBoard(lobby)}`;
+  } else if (ph === 'round5-final' || ph === 'final') {
+    const maxU = Math.max(0, ...lobby.players.map(p => p.timesUnmasked || 0));
+    const unm = maxU > 0 ? lobby.players.filter(p => (p.timesUnmasked || 0) === maxU).map(p => p.name).join(' & ') : '';
+    h = `<div class="tv-kicker">Eindstand</div>${tvBoard(lobby)}${unm ? `<div class="tv-sub">🫣 Meest Ontmaskerd: <strong>${esc(unm)}</strong> (${maxU}×)</div>` : ''}`;
+  } else {
+    h = `<div class="tv-title">Even geduld…</div>`;
+  }
+  main.innerHTML = h;
+  tvTick();
+}
+
+function tvTick() {
+  const lobby = latestLobby;
+  if (!tvMode || !lobby) return;
+  const timerEl = document.getElementById('tv-timer');
+  const timed = lobby.phase === 'quickfire-active' ? [lobby.quickfire, QUICKFIRE_SECONDS] : lobby.phase === 'verhoor-active' ? [lobby.verhoor, VERHOOR_SECONDS] : null;
+  if (timerEl && timed && timed[0]) {
+    const remaining = Math.max(0, timed[1] - (serverNow() - timed[0].questionStartAt) / 1000);
+    timerEl.textContent = Math.ceil(remaining);
+    timerEl.classList.toggle('low', remaining <= 3);
+  }
+  const photoEl = document.getElementById('tv-photo');
+  if (photoEl && lobby.photoRound && !lobby.photoRound.revealed) {
+    const progress = Math.min(1, (serverNow() - lobby.photoRound.questionStartAt) / 1000 / PHOTOROUND_SECONDS);
+    photoEl.style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
+  }
+}
+
+(function checkTvLinkOnLoad() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get('tv');
+  if (!code) return;
+  startTvMode(code.toUpperCase(), url.searchParams.get('spel') || '');
+})();
+
 // Vastgesteld VOOR prefillJoinFromLink hieronder een ?join=-param uit de
 // URL verwijdert (via replaceState) — anders zou checkLocalSessionOnLoad
 // die param niet meer zien en zou een oude lokale sessie het verse
@@ -2841,7 +3217,7 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
 // De voorgevulde velden blijven aanpasbaar, zodat dit ook werkt wanneer
 // iemand bewust wil terugkeren naar een ANDER, ouder opgeslagen spel.
 (function checkLocalSessionOnLoad() {
-  if (hadJoinLinkOnLoad) return;
+  if (hadJoinLinkOnLoad || tvMode) return;
   let ptr;
   try { ptr = JSON.parse(localStorage.getItem(LAST_SESSION_POINTER_KEY) || 'null'); } catch (e) { ptr = null; }
   if (!ptr || !ptr.gameName || !ptr.code) return;
@@ -2877,5 +3253,224 @@ hostNextPhoto = onceAtATime(hostNextPhoto);
 hostNextVerhoor = onceAtATime(hostNextVerhoor);
 hostNextBiechtPlay = onceAtATime(hostNextBiechtPlay);
 hostRevealBiechtStory = onceAtATime(hostRevealBiechtStory);
-hostStartHotOrNot = onceAtATime(hostStartHotOrNot);
-nextHotOrNot = onceAtATime(nextHotOrNot);
+
+// ── Geluid ──
+// Kleine, zelf opgewekte geluidjes (geen audiobestanden): tikken in de
+// laatste 3 seconden, een geluidje bij de onthulling (juist/fout) en een
+// fanfare bij de eindstand. Uit te zetten met de 🔊-knop; die keuze wordt
+// per toestel onthouden.
+const Sound = {
+  ctx: null,
+  muted: (() => { try { return localStorage.getItem('unmasked:muted') === '1'; } catch (e) { return false; } })(),
+  lastTickKey: '',
+  ensure() {
+    if (!this.ctx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      try { this.ctx = new C(); } catch (e) { return null; }
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    return this.ctx;
+  },
+  tone(freq, dur, type = 'sine', vol = 0.15, delay = 0) {
+    if (this.muted) return;
+    const c = this.ensure();
+    if (!c) return;
+    const t = c.currentTime + delay;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(t); o.stop(t + dur + 0.05);
+  },
+  countdown(key, remaining) {
+    const sec = Math.ceil(remaining);
+    const k = key + '_' + sec;
+    if (sec > 0 && sec <= 3 && this.lastTickKey !== k) { this.lastTickKey = k; this.tone(sec === 1 ? 1175 : 880, 0.09, 'square', 0.05); }
+  },
+  reveal(result) {
+    if (result === true) [523, 659, 784].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.14, i * 0.09));
+    else if (result === false) this.tone(196, 0.35, 'sawtooth', 0.06);
+    else this.tone(587, 0.22, 'triangle', 0.11);
+  },
+  fanfare() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.28, 'triangle', 0.14, i * 0.13)); },
+};
+document.addEventListener('pointerdown', () => { if (!Sound.muted) Sound.ensure(); }, { passive: true });
+function toggleSound() {
+  Sound.muted = !Sound.muted;
+  try { localStorage.setItem('unmasked:muted', Sound.muted ? '1' : '0'); } catch (e) { /* negeren */ }
+  document.getElementById('sound-btn').textContent = Sound.muted ? '🔇' : '🔊';
+}
+document.getElementById('sound-btn').textContent = Sound.muted ? '🔇' : '🔊';
+
+// ── Verbindingsstatus ──
+// Een balk bovenaan zodra de verbinding wegvalt (geen internet, of Firebase
+// kan de server niet bereiken). Pas na 2,5 s tonen, zodat een korte hapering
+// geen paniek zaait.
+let connFromCache = false;
+let connBannerTimer = null;
+function updateConnBanner() {
+  const banner = document.getElementById('conn-banner');
+  if (!banner) return;
+  const offline = !navigator.onLine || (!!Session.code && connFromCache && window.UNMASKED_BACKEND_MODE === 'firebase');
+  if (!offline) { clearTimeout(connBannerTimer); connBannerTimer = null; banner.style.display = 'none'; return; }
+  if (!connBannerTimer) connBannerTimer = setTimeout(() => {
+    connBannerTimer = null;
+    const still = !navigator.onLine || (!!Session.code && connFromCache);
+    banner.style.display = still ? 'block' : 'none';
+  }, 2500);
+}
+window.onBackendConnectionInfo = (info) => { connFromCache = !!info.fromCache; updateConnBanner(); };
+window.addEventListener('online', updateConnBanner);
+window.addEventListener('offline', updateConnBanner);
+
+// ── Nog een potje ──
+async function rematchClick(keepDossiers) {
+  if (!Session.isHost || !Session.code) return;
+  if (!keepDossiers && !window.confirm('Nieuw spel starten? Iedereen vult dan een nieuw dossier in.')) return;
+  try { await withRetry(() => GameOps.startRematch(Session.code, keepDossiers)); }
+  catch (e) { window.alert('Kon geen nieuw potje starten — probeer opnieuw.'); }
+}
+
+function renderRematchButtons() {
+  const host = document.getElementById('rematch-host');
+  const guest = document.getElementById('rematch-guest');
+  if (!host) return;
+  const live = !!(Session.code && latestLobby);
+  host.style.display = live && Session.isHost ? 'block' : 'none';
+  guest.style.display = live && !Session.isHost ? 'block' : 'none';
+}
+
+function leaveAfterFinal() {
+  if (Session.unsub) { try { Session.unsub(); } catch (e) { /* ignore */ } }
+  Session.code = null; Session.playerId = null; Session.isHost = false; Session.unsub = null; Session.gameName = null;
+  latestLobby = null;
+  go('s-home');
+}
+
+// Alles wat per spel lokaal onthouden wordt (welke vraag al getekend,
+// geschiedenis, ...) op nul — anders denkt een tweede potje dat vraag 1
+// "al getoond" is.
+function resetPerGameState() {
+  lastRenderedQFIndex = -1; lastFlashedQFIndex = -1; qfNextBtnReady = {}; qfHistory = [];
+  lastRenderedPhotoIndex = -1; lastFlashedPhotoIndex = -1; photoNextBtnReady = {}; photoHistory = [];
+  lastSpokenVerhoorIndex = -1; lastFlashedVerhoorIndex = -1; verhoorNextBtnReady = {}; verhoorHistory = [];
+  lastRenderedSoundtrackIndex = -1; soundtrackPlayedForIndex = -1; soundtrackHistory = []; soundtrackRevealSoundFor = -1;
+  lastRenderedBiechtKey = ''; biechtHistory = []; biechtHistoryPushedFor = -1;
+  [qfCountdownTimer, photoRoundTicker, verhoorCountdownTimer].forEach(t => clearInterval(t));
+}
+
+// Detecteert dat de host "Nog een potje" startte (lobby.gameNumber gaat
+// omhoog) en zet iedereen op de juiste plek: met bewaarde dossiers naar
+// de wachtkamer, anders naar een nieuw, leeg dossier.
+function handleGameNumberChange(lobby) {
+  const gn = lobby.gameNumber || 1;
+  if (Session.gameNumber === undefined) { Session.gameNumber = gn; return false; }
+  if (gn === Session.gameNumber) return false;
+  Session.gameNumber = gn;
+  resetPerGameState();
+  latestLobby = lobby;
+  const me = lobby.players.find(p => p.id === Session.playerId);
+  if (me) saveLocalSession(me.name, Session.gameName || lobby.gameName);
+  if (me && me.dossierDone) {
+    go('s-waiting');
+  } else {
+    try { localStorage.removeItem(answersStorageKey(Session.gameName, Session.code)); } catch (e) { /* negeren */ }
+    resetDossierState();
+    dossierExpandedRow = null;
+    resetPhotoState();
+    resetBiechtRecording();
+    go('s-dossier');
+    renderDossierOverview();
+  }
+  renderAllScreens(lobby);
+  return true;
+}
+
+// ── Deelbare eindstand ──
+// Tekent het podium + "Meest Ontmaskerd" op een afbeelding (1080×1350,
+// past in WhatsApp/Instagram) en deelt die via het deelmenu van de
+// telefoon, of downloadt hem als delen niet kan.
+async function shareFinalImage() {
+  const players = (latestLobby && latestLobby.players) || [];
+  if (!players.length) return;
+  const sorted = [...players].sort((a, b) => (b.score || 0) - (a.score || 0));
+  const W = 1080, H = 1350;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const bg = x.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#1d1030'); bg.addColorStop(1, '#0b0a13');
+  x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  const glow = x.createRadialGradient(W / 2, 80, 10, W / 2, 80, 700); glow.addColorStop(0, 'rgba(255,61,107,0.28)'); glow.addColorStop(1, 'rgba(255,61,107,0)');
+  x.fillStyle = glow; x.fillRect(0, 0, W, H);
+  x.textAlign = 'center';
+  const fit = (text, max, size, weight = '700') => {
+    let t = String(text); x.font = `${weight} ${size}px system-ui, sans-serif`;
+    while (x.measureText(t).width > max && t.length > 2) t = t.slice(0, -2);
+    return t === String(text) ? t : t + '…';
+  };
+  x.fillStyle = '#f4f2fb'; x.font = '700 84px system-ui, sans-serif'; x.fillText('Unmasked', W / 2, 150);
+  x.fillStyle = '#f5a623'; x.fillText(fit((latestLobby.gameName || '').toUpperCase(), 900, 40), W / 2, 215);
+  x.fillStyle = '#948fb3'; x.font = '500 34px system-ui, sans-serif'; x.fillText('Eindstand', W / 2, 270);
+  const slots = [{ i: 1, cx: 250, h: 230, col: '#b8bacb', medal: '🥈' }, { i: 0, cx: 540, h: 320, col: '#f5a623', medal: '🥇' }, { i: 2, cx: 830, h: 170, col: '#c47a45', medal: '🥉' }];
+  const base = 820;
+  slots.forEach(sl => {
+    const p = sorted[sl.i]; if (!p) return;
+    x.fillStyle = sl.col; x.beginPath();
+    if (x.roundRect) x.roundRect(sl.cx - 130, base - sl.h, 260, sl.h, [24, 24, 0, 0]); else x.rect(sl.cx - 130, base - sl.h, 260, sl.h);
+    x.fill();
+    x.font = '72px system-ui, sans-serif'; x.fillText(sl.medal, sl.cx, base - sl.h + 90);
+    x.fillStyle = '#f4f2fb'; x.fillText(fit(p.name, 270, 44), sl.cx, base - sl.h - 70);
+    x.fillStyle = '#948fb3'; x.font = '600 36px system-ui, sans-serif'; x.fillText(`${p.score || 0} pt`, sl.cx, base - sl.h - 22);
+  });
+  let y = 900;
+  x.textAlign = 'left';
+  sorted.slice(3, 8).forEach((p, k) => {
+    x.fillStyle = '#948fb3'; x.font = '600 34px system-ui, sans-serif'; x.fillText(`${k + 4}.`, 200, y);
+    x.fillStyle = '#f4f2fb'; x.fillText(fit(p.name, 520, 34, '600'), 270, y);
+    x.textAlign = 'right'; x.fillStyle = '#ff3d6b'; x.fillText(`${p.score || 0} pt`, 880, y); x.textAlign = 'left';
+    y += 52;
+  });
+  const maxU = Math.max(0, ...players.map(p => p.timesUnmasked || 0));
+  x.textAlign = 'center';
+  if (maxU > 0) {
+    const names = players.filter(p => (p.timesUnmasked || 0) === maxU).map(p => p.name).join(' & ');
+    x.fillStyle = '#f5a623'; x.font = '700 40px system-ui, sans-serif'; x.fillText('🫣 Meest Ontmaskerd', W / 2, 1200);
+    x.fillStyle = '#f4f2fb'; x.fillText(fit(`${names} — ${maxU}×`, 950, 38, '600'), W / 2, 1255);
+  }
+  x.fillStyle = '#5d5880'; x.font = '500 28px system-ui, sans-serif'; x.fillText(buildPlainGameUrl().replace(/^https?:\/\//, ''), W / 2, 1320);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  if (!blob) return;
+  const file = new File([blob], 'unmasked-eindstand.png', { type: 'image/png' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Unmasked — eindstand', text: `${latestLobby.gameName || 'Unmasked'}: wie is er écht ontmaskerd? 🎭` });
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'unmasked-eindstand.png';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// ── Toegankelijkheid ──
+// Alle aantikbare kaarten (antwoorden, spelers, foto's, dossiervragen)
+// krijgen een knop-rol en zijn met het toetsenbord te bedienen (Tab +
+// Enter/Spatie). Juist/fout krijgt naast de kleur ook ✓/✗ (zie style.css).
+const CLICKABLE_SEL = '.player-btn, .answer-card, .fav-card, .dossier-row-head';
+function enhanceClickables(root) {
+  if (!root || !root.querySelectorAll) return;
+  const els = root.matches && root.matches(CLICKABLE_SEL) ? [root, ...root.querySelectorAll(CLICKABLE_SEL)] : root.querySelectorAll(CLICKABLE_SEL);
+  els.forEach(el => { if (!el.hasAttribute('role')) { el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0'); } });
+}
+new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) enhanceClickables(n); })))
+  .observe(document.body, { childList: true, subtree: true });
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button' && e.target.tagName !== 'BUTTON') {
+    e.preventDefault();
+    e.target.click();
+  }
+});

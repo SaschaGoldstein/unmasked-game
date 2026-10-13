@@ -7,13 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=41" />
+  <link rel="stylesheet" href="style.css?v=43" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
   <button id="leave-game-btn" onclick="leaveGame()" title="Verlaat spel" style="display:none;">✕</button>
+  <button id="takeover-btn" onclick="claimHostClick()" style="display:none;">Host reageert niet? Word host</button>
 
   <!-- HOME -->
   <div class="screen active" id="s-home">
@@ -25,7 +26,7 @@
       <button class="btn secondary" onclick="go('s-join')">Meedoen met code</button>
       <div class="card" style="margin-top:8px;">
         <div class="card-title">Hoe werkt het?</div>
-        <div class="card-sub">Vul je dossier in, kom samen, en ontmasker je vrienden in 5 rondes — gewoon via je browser.</div>
+        <div class="card-sub">Vul je dossier in, kom samen (liefst met 3 of meer), en ontmasker je vrienden in 5 rondes — gewoon via je browser.</div>
       </div>
       <div class="nav-hint">Prototype v3 · 5 rondes · live multiplayer</div>
     </div>
@@ -115,7 +116,7 @@
       </div>
       <input type="file" accept="image/*" id="photo-input" style="display:none;" onchange="handlePhotoSelected(event)" />
       <button class="btn" style="margin-top:28px;" onclick="confirmPhotoAndContinue()">Volgende →</button>
-      <button class="btn ghost" onclick="skipPhotoAndContinue()">Sla over (gebruik avatar)</button>
+      <button class="btn ghost" onclick="skipPhotoAndContinue()">Sla over (dan kom je niet voor in Ronde 2)</button>
     </div>
   </div>
 
@@ -146,7 +147,7 @@
     <div class="screen-inner centered">
       <button class="back-btn" onclick="go('s-dossier')" style="align-self:flex-start;">← Terug naar overzicht</button>
       <div class="section-title">Jouw biecht</div>
-      <div class="section-sub">Voor Ronde 5 — spreek nu al iets kleins in (een leugentje, een geheim, iets grappigs). Je stem wordt automatisch vervormd en pas later, tijdens het spel, afgespeeld.</div>
+      <div class="section-sub">Voor Ronde 5 — spreek nu al iets kleins in (een leugentje, een geheim, iets grappigs). Je stem wordt automatisch vervormd en pas later, tijdens het spel, afgespeeld. Maximaal 30 seconden — de opname stopt daarna vanzelf.</div>
       <label style="margin-top:4px;">Kies je stemvervormer</label>
       <div class="hon-buttons" style="margin-top:8px;">
         <button class="btn secondary voice-style-btn selected" id="voice-style-low-btn" onclick="selectVoiceStyle('low')">🦖 Diepe stem</button>
@@ -191,10 +192,12 @@
       <button class="btn ghost" style="margin-bottom:8px;" onclick="reopenDossierForEditing()">Zie je een foutje? Dossier nog aanpassen</button>
       <div class="card" id="waiting-notdone-card"><div class="card-title" style="margin-bottom:10px;">Nog niet klaar:</div><div id="waiting-notdone"></div></div>
       <div class="card" style="background:var(--green-bg);border-color:#1a4020;"><div class="card-title" style="color:var(--green);" id="waiting-donecount">Klaar (0/0)</div><div class="card-sub" id="waiting-donelist"></div></div>
+      <div class="card" id="waiting-manage-card" style="display:none;width:100%;"><div class="card-title" style="margin-bottom:6px;">Spelers beheren</div><div class="card-sub" style="margin-bottom:6px;">Iemand haakte af of staat er dubbel in? Tik op ✕ om die speler te verwijderen.</div><div class="player-list" id="waiting-manage-list"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" id="waiting-start-btn" style="display:none;" onclick="hostStartGame()">Host: Spel starten →</button>
         <div class="label-sm" id="waiting-start-warning" style="display:none;margin-top:8px;text-align:center;"></div>
         <div class="label-sm" id="waiting-min-players-msg" style="display:none;color:var(--red);"></div>
+        <div class="label-sm" id="waiting-few-players-tip" style="display:none;margin-top:8px;text-align:center;">Tip: met 3 of meer spelers is het pas echt spannend — met 2 weet je vaak meteen het antwoord.</div>
         <div class="label-sm" id="waiting-nothost-msg">Wacht tot de host het spel start...</div>
       </div>
     </div>
@@ -251,6 +254,7 @@
       <span class="waiting-big" style="font-size:44px;">🏆</span>
       <div class="waiting-title">Na Ronde 1</div>
       <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 4 rondes te gaan.</div>
+      <div class="label-sm" id="r1-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r1"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" onclick="go('s-round2-intro')">Verder naar Ronde 2 →</button>
@@ -306,38 +310,29 @@
       <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 3 rondes te gaan.</div>
       <div class="between-rounds">
         <div class="br-icon">🎭</div>
-        <div class="br-title">Ronde 3 komt eraan</div>
-        <div class="br-sub">In Verhoor — raad wie de dader is van het meest illegale wat iemand heeft gedaan.</div>
+        <div class="br-title">Eerst een bonus: favoriete foto, dan Ronde 3</div>
+        <div class="br-sub">Daarna volgt het Verhoor — raad wie er achter een anonieme bekentenis zit.</div>
       </div>
+      <div class="label-sm" id="r2-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r2"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
-        <button class="btn amber" id="r2score-host-btn" style="display:none;" onclick="hostStartHotOrNot()">Hot or Not →</button>
+        <button class="btn amber" id="r2score-host-btn" style="display:none;" onclick="hostStartHotOrNot()">Bonus: favoriete foto →</button>
         <div class="label-sm" id="r2score-wait-msg">Wachten op de host...</div>
       </div>
     </div>
   </div>
 
-  <!-- HOT OR NOT -->
+  <!-- BONUS: FAVORIETE FOTO (vervangt Hot or Not) -->
   <div class="screen" id="s-hotornot">
     <div class="round-header">
       <div class="round-badge" style="background:linear-gradient(135deg,var(--violet),var(--accent));">Bonus</div>
-      <div class="round-title">Hot or Not</div>
+      <div class="round-title">Favoriete foto</div>
     </div>
     <div class="screen-inner centered" style="padding-top:16px;">
-      <div class="section-sub" id="hon-sub">Onthuld! Stem gewoon voor de lol — telt niet mee voor de score.</div>
-      <div class="photo-stage" style="height:240px;">
-        <div class="photo-emoji" id="hon-photo" style="font-size:100px;"></div>
-      </div>
-      <div class="label-sm" id="hon-name" style="font-size:16px;color:var(--text);margin:10px 0 16px;"></div>
-      <div class="hon-buttons">
-        <button class="hon-btn hon-not" id="hon-btn-not" onclick="castHotOrNotVote('not')">🚫 Not</button>
-        <button class="hon-btn hon-hot" id="hon-btn-hot" onclick="castHotOrNotVote('hot')">🔥 Hot</button>
-      </div>
-      <div class="hon-results" id="hon-results" style="display:none;">
-        <div class="hon-bar-wrap"><div class="hon-bar" id="hon-bar" style="width:50%;"></div></div>
-        <div class="label-sm" id="hon-tally"></div>
-      </div>
-      <button class="btn amber" id="hon-next-btn" style="margin-top:auto;display:none;" onclick="nextHotOrNot()">Volgende →</button>
+      <div class="section-sub" id="fav-sub">Welke foto van vanavond is jouw favoriet? Stem gewoon voor de lol — telt niet mee voor de score.</div>
+      <div class="fav-grid" id="fav-grid"></div>
+      <div class="card" id="fav-results" style="display:none;width:100%;margin-top:14px;"><div id="fav-tally"></div></div>
+      <button class="btn amber" id="hon-next-btn" style="margin-top:auto;display:none;" onclick="nextHotOrNot()">Verder naar Ronde 3 →</button>
       <div class="label-sm" id="hon-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
     </div>
   </div>
@@ -400,6 +395,7 @@
         <div class="br-title">Ronde 4 komt eraan</div>
         <div class="br-sub">Soundtrack & Spirit — ieders lievelingsnummer wordt afgespeeld. Wie is de eigenaar? En welk drankje hoort erbij?</div>
       </div>
+      <div class="label-sm" id="r3-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r3"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" onclick="goRound4Intro()">Verder naar Ronde 4 →</button>
@@ -417,7 +413,7 @@
       <div class="rules">
         <div class="rule-row"><div class="rule-icon">🎧</div><div class="rule-text">De host speelt een <strong>fragment</strong> van ieders lievelingsnummer</div></div>
         <div class="rule-row"><div class="rule-icon">⚡</div><div class="rule-text">Raad de eigenaar → daarna een <strong>bonusgok</strong> voor het lievelingsdrankje</div></div>
-        <div class="rule-row"><div class="rule-icon">🥤</div><div class="rule-text">Beide goed = <strong>extra punten</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">🥤</div><div class="rule-text">Juist geraden = punten (snelste <strong>10</strong>, daarna minder) · juist drankje = <strong>+2 bonus</strong></div></div>
       </div>
       <div class="label-sm" id="r4intro-music-status" style="margin-top:16px;"></div>
       <button class="btn amber" id="r4intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartRound4()">Start de ronde →</button>
@@ -462,7 +458,8 @@
     <div class="screen-inner centered">
       <span class="waiting-big" style="font-size:44px;">🎭</span>
       <div class="waiting-title">Na Ronde 4</div>
-      <div class="waiting-sub" style="margin-bottom:16px;">Laatste tussenstand — op naar de eindstand!</div>
+      <div class="waiting-sub" style="margin-bottom:16px;">Tussenstand — nog 1 ronde te gaan: de Biecht-Finale!</div>
+      <div class="label-sm" id="r4-skip-note" style="display:none;margin-bottom:12px;"></div>
       <div class="card" style="width:100%;"><div id="scoreboard-r4"></div></div>
       <div style="margin-top:auto;padding-top:16px;width:100%;">
         <button class="btn amber" onclick="goRound5Intro()">Naar Ronde 5: Biecht-Finale →</button>
@@ -480,7 +477,7 @@
       <div class="rules">
         <div class="rule-row"><div class="rule-icon">🌀</div><div class="rule-text">Elke stem is al <strong>vervormd</strong> — anoniem</div></div>
         <div class="rule-row"><div class="rule-icon">🕵️</div><div class="rule-text">Gok <strong>tijdens het afspelen</strong> van wie het verhaal is</div></div>
-        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Juist &amp; als eerste geraden = <strong>punten</strong> · beste verhaal = <strong>+5 bonus</strong></div></div>
+        <div class="rule-row"><div class="rule-icon">🏆</div><div class="rule-text">Juist geraden = <strong>punten</strong> (snelste 10, daarna minder) · beste verhaal = <strong>+5 bonus</strong></div></div>
       </div>
       <button class="btn amber" id="r5intro-host-btn" style="margin-top:auto;display:none;" onclick="hostStartBiechtPlayback()">Start het luisteren →</button>
       <div class="label-sm" id="r5intro-wait-msg" style="margin-top:auto;">Wachten op de host...</div>
@@ -556,10 +553,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=41"></script>
-<script src="backend.js?v=41"></script>
-<script src="youtube-config.js?v=41"></script>
-<script src="youtube.js?v=41"></script>
-<script src="script.js?v=41"></script>
+<script src="firebase-config.js?v=43"></script>
+<script src="backend.js?v=43"></script>
+<script src="youtube-config.js?v=43"></script>
+<script src="youtube.js?v=43"></script>
+<script src="script.js?v=43"></script>
 </body>
 </html>

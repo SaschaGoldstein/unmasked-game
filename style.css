@@ -379,3 +379,18 @@ audio { border-radius: var(--radius-sm); }
 @keyframes confettiFall {
   to { transform: translateY(110vh) rotate(540deg); opacity: 0.2; }
 }
+
+/* ── Bonus: favoriete foto ── */
+.fav-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; width: 100%; margin-top: 12px; }
+.fav-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: border-color 0.15s, transform 0.1s; }
+.fav-card:active { transform: scale(0.97); }
+.fav-card.own { cursor: default; opacity: 0.55; }
+.fav-card.pending { border-color: var(--accent2); box-shadow: 0 0 0 1px var(--accent2) inset; }
+.fav-card.winner { border-color: var(--green); box-shadow: 0 0 0 2px var(--green) inset; }
+.fav-photo { width: 100%; aspect-ratio: 1 / 1; background-size: cover; background-position: center; background-color: var(--card-bg-2); }
+.fav-name { padding: 6px 8px; font-size: 13px; font-weight: 600; color: var(--text); text-align: center; }
+
+/* ── Host-tools ── */
+.remove-player-btn { margin-left: auto; background: none; border: 1px solid var(--card-border); color: var(--text-muted); border-radius: 50%; width: 30px; height: 30px; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+.remove-player-btn:active { opacity: 0.7; }
+#takeover-btn { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 50; background: var(--card-bg-2); color: var(--text); border: 1px solid var(--accent2); border-radius: 20px; padding: 8px 16px; font-family: var(--font-body); font-size: 13px; font-weight: 600; cursor: pointer; max-width: calc(100% - 32px); }

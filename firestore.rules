@@ -1,0 +1,47 @@
+// ─────────────────────────────────────────
+//  Unmasked — Firestore-beveiligingsregels
+//
+//  Vervangt de "test mode"-regels (die verlopen na 30 dagen, waarna het
+//  spel plots niets meer kan wegschrijven).
+//
+//  Plakken in: Firebase console → Firestore Database → Rules → Publish.
+//
+//  Wat dit afschermt:
+//   - Niemand kan nog een LIJST van alle lobby's opvragen (vroeger kon
+//     iedereen alle foto's, bekentenissen en stemmen van alle spellen
+//     binnenhalen). Je moet de exacte code kennen.
+//   - Lobby's en opnames kunnen niet door een client verwijderd worden.
+//   - Stemopnames zijn beperkt tot ~1 MB.
+//
+//  Opruiming: zet in de console een TTL-policy op het veld "expiresAt"
+//  (Firestore → TTL → Create policy) voor de collectiegroepen
+//  "lobbies", "voices" en "clock". Firestore wist die documenten dan
+//  automatisch ~48 uur na het aanmaken van de lobby.
+// ─────────────────────────────────────────
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /lobbies/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if code.matches('UM-[A-Z]{2}[0-9]{2}')
+                            && request.resource.data.code == code;
+      allow delete: if false;
+
+      match /voices/{playerId} {
+        allow get: if true;
+        allow list, delete: if false;
+        allow create, update: if request.resource.data.dataUrl is string
+                              && request.resource.data.dataUrl.size() < 1000000;
+      }
+    }
+
+    // Kortstondige documenten voor de klokmeting (zie syncClock in backend.js).
+    match /clock/{id} {
+      allow get, create, delete: if true;
+      allow list, update: if false;
+    }
+  }
+}

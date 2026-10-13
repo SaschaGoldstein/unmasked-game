@@ -41,6 +41,29 @@ function makeLobbyCode() {
 
 function makeId() { return Math.random().toString(36).slice(2, 10); }
 
+// ── Gedeelde klok ───────────────────────────────────────────────────
+// Telefoons lopen nooit exact gelijk. Timers en snelheidspunten vergelijken
+// tijdstempels van verschillende toestellen, dus zonder correctie onthulde
+// een voorlopende telefoon te vroeg voor iedereen en kreeg een achterlopende
+// telefoon meer punten dan het maximum. serverNow() geeft de (geschatte)
+// servertijd — Backend.syncClock() meet het verschil één keer bij het
+// opstarten. Lukt dat niet, dan valt het gewoon terug op de eigen klok.
+let clockOffsetMs = 0;
+function serverNow() { return Date.now() + clockOffsetMs; }
+
+// Opruimen: Firestore verwijdert lobby's (en de stemopnames) automatisch
+// zodra expiresAt verstreken is, mits er een TTL-policy op dat veld staat
+// (zie README-opruiming). Foto's, bekentenissen en stemmen blijven zo niet
+// eindeloos bewaard.
+const LOBBY_TTL_MS = 48 * 60 * 60 * 1000;
+function lobbyExpiry() { return new Date(Date.now() + LOBBY_TTL_MS); }
+
+function nameTaken(lobby, name) {
+  const n = (name || '').trim().toLowerCase();
+  return lobby.players.some(p => (p.name || '').trim().toLowerCase() === n);
+}
+const NAME_TAKEN_MSG = 'Die naam is al in gebruik in deze lobby — kies een andere (bv. met de eerste letter van je achternaam erbij).';
+
 // Spelnamen worden herkenbaar maar niet kieskeurig vergeleken — een
 // speler die "vrijdagavond bij lien" intikt moet nog steeds matchen met
 // een lobby die als "Vrijdagavond bij Lien" is aangemaakt.
@@ -89,14 +112,17 @@ class LocalBackend {
     return lobby;
   }
 
+  async syncClock() { clockOffsetMs = 0; }
+
   async createLobby(hostName, maxPlayers, gameName) {
-    const code = makeLobbyCode();
+    let code = makeLobbyCode();
+    for (let i = 0; i < 10 && this._read(code); i++) code = makeLobbyCode();
     const playerId = makeId();
     const lobby = {
       code, hostId: playerId, maxPlayers, gameName,
       phase: 'lobby', round: 0,
       players: [newPlayer(playerId, hostName, 0)],
-      createdAt: Date.now(),
+      createdAt: Date.now(), expiresAt: lobbyExpiry().getTime(),
     };
     this._write(code, lobby);
     return { code, playerId };
@@ -107,6 +133,7 @@ class LocalBackend {
     if (!lobby) throw new Error('Lobby niet gevonden. Klopt de code?');
     if (!gameNamesMatch(lobby.gameName, gameName)) throw new Error('Spelnaam komt niet overeen met deze lobby. Vraag de host om de juiste naam.');
     if (lobby.players.length >= lobby.maxPlayers) throw new Error('Deze lobby is al vol.');
+    if (nameTaken(lobby, name)) throw new Error(NAME_TAKEN_MSG);
     const playerId = makeId();
     lobby.players.push(newPlayer(playerId, name, lobby.players.length));
     this._write(code, lobby);
@@ -164,17 +191,52 @@ class FirebaseBackend {
   async _doc(code) { await this._ready; return this.fs.doc(this.db, 'lobbies', code); }
   async _voiceDoc(code, playerId) { await this._ready; return this.fs.doc(this.db, 'lobbies', code, 'voices', playerId); }
 
+  // Meet het verschil tussen de eigen klok en de Firestore-serverklok:
+  // schrijf een servertijdstempel weg, lees hem terug en vergelijk met het
+  // midden van de schrijfactie. Beste van 3 metingen (kortste round-trip).
+  async syncClock() {
+    try {
+      await this._ready;
+      let best = null;
+      for (let i = 0; i < 3; i++) {
+        const ref = this.fs.doc(this.db, 'clock', makeId());
+        const t0 = Date.now();
+        await this.fs.setDoc(ref, { t: this.fs.serverTimestamp(), expiresAt: new Date(Date.now() + 3600000) });
+        const t1 = Date.now();
+        const snap = await this.fs.getDoc(ref);
+        const serverMs = snap.data().t.toMillis();
+        const rtt = t1 - t0;
+        if (!best || rtt < best.rtt) best = { rtt, offset: serverMs - (t0 + t1) / 2 };
+        this.fs.deleteDoc(ref).catch(() => {});
+      }
+      if (best) clockOffsetMs = best.offset;
+    } catch (e) { clockOffsetMs = 0; /* geen meting mogelijk — eigen klok gebruiken */ }
+  }
+
   async createLobby(hostName, maxPlayers, gameName) {
     await this._ready;
-    const code = makeLobbyCode();
     const playerId = makeId();
-    const lobby = {
-      code, hostId: playerId, maxPlayers, gameName,
-      phase: 'lobby', round: 0,
-      players: [newPlayer(playerId, hostName, 0)],
-      createdAt: Date.now(),
-    };
-    await this.fs.setDoc(await this._doc(code), lobby);
+    let code = null;
+    // Nooit een bestaande lobby overschrijven: binnen een transactie
+    // controleren of de code al bestaat, anders een nieuwe proberen.
+    for (let attempt = 0; attempt < 10 && !code; attempt++) {
+      const candidate = makeLobbyCode();
+      const ref = this.fs.doc(this.db, 'lobbies', candidate);
+      const lobby = {
+        code: candidate, hostId: playerId, maxPlayers, gameName,
+        phase: 'lobby', round: 0,
+        players: [newPlayer(playerId, hostName, 0)],
+        createdAt: Date.now(), expiresAt: lobbyExpiry(),
+      };
+      const created = await this.fs.runTransaction(this.db, async (transaction) => {
+        const snap = await transaction.get(ref);
+        if (snap.exists()) return false;
+        transaction.set(ref, lobby);
+        return true;
+      });
+      if (created) code = candidate;
+    }
+    if (!code) throw new Error('Kon geen vrije lobby-code vinden. Probeer opnieuw.');
     return { code, playerId };
   }
 
@@ -188,6 +250,7 @@ class FirebaseBackend {
       const lobby = snap.data();
       if (!gameNamesMatch(lobby.gameName, gameName)) throw new Error('Spelnaam komt niet overeen met deze lobby. Vraag de host om de juiste naam.');
       if (lobby.players.length >= lobby.maxPlayers) throw new Error('Deze lobby is al vol.');
+      if (nameTaken(lobby, name)) throw new Error(NAME_TAKEN_MSG);
       lobby.players.push(newPlayer(playerId, name, lobby.players.length));
       transaction.set(ref, lobby);
     });
@@ -219,7 +282,7 @@ class FirebaseBackend {
 
   async submitVoice(code, playerId, dataUrl) {
     const ref = await this._voiceDoc(code, playerId);
-    await this.fs.setDoc(ref, { dataUrl });
+    await this.fs.setDoc(ref, { dataUrl, expiresAt: lobbyExpiry() });
   }
 
   async getVoice(code, playerId) {
@@ -247,6 +310,24 @@ window.UNMASKED_BACKEND_MODE = hasRealFirebaseConfig ? 'firebase' : 'local';
 // Built once on top of Backend.updateLobby(), shared by both backends.
 
 function findPlayer(lobby, playerId) { return lobby.players.find(p => p.id === playerId); }
+function findPlayerByName(lobby, name) { return lobby.players.find(p => p.name === name); }
+
+// ── Puntenbalans ──
+// Elke ronde levert per item hooguit 10 punten op, zodat geen enkele ronde
+// het spel op zich beslist. Getimede rondes (1-3): 10 bij een onmiddellijke
+// juiste gok, aflopend tot 1 op het laatste moment. Rondes zonder timer
+// (4-5): de snelste juiste gokker krijgt 10, de volgenden telkens minder.
+const MAX_ITEM_POINTS = 10;
+function speedPoints(elapsedSec, secondsAllowed) {
+  const e = Math.min(secondsAllowed, Math.max(0, elapsedSec));
+  return Math.max(1, Math.min(MAX_ITEM_POINTS, 1 + Math.round(9 * (1 - e / secondsAllowed))));
+}
+const RANK_POINTS = [10, 8, 6, 5, 4, 3, 2];
+function rankPoints(rankIndex) { return RANK_POINTS[rankIndex] ?? 1; }
+
+// Telt hoe vaak iemand ontmaskerd werd (minstens één ander raadde het
+// juist) — voor de titel "Meest Ontmaskerd" op de eindstand.
+function markUnmasked(player) { if (player) player.timesUnmasked = (player.timesUnmasked || 0) + 1; }
 
 async function submitDossier(code, playerId, answers) {
   return Backend.updateLobby(code, (lobby) => {
@@ -303,27 +384,31 @@ async function revealQuickfire(code, index, secondsAllowed) {
     const qf = lobby.quickfire;
     if (!qf || qf.index !== index || qf.revealed) return;
     const q = qf.questions[qf.index];
+    let caught = false;
     for (const [voterId, a] of Object.entries(qf.answers || {})) {
       const voter = findPlayer(lobby, voterId);
       // Je kan geen punten krijgen op je eigen antwoord — dat zou je
       // altijd al weten, dus geen echte gok.
       if (voter && voter.name === q.correctPlayer) continue;
       if (a.guess === q.correctPlayer) {
-        const remaining = Math.max(0, secondsAllowed - (a.at - qf.questionStartAt) / 1000);
-        const pts = Math.max(1, Math.round(remaining) + 1);
-        if (voter) voter.score = (voter.score || 0) + pts;
+        const pts = speedPoints((a.at - qf.questionStartAt) / 1000, secondsAllowed);
+        if (voter) { voter.score = (voter.score || 0) + pts; caught = true; }
       }
     }
+    if (caught) markUnmasked(findPlayerByName(lobby, q.correctPlayer));
     qf.revealed = true;
   });
 }
 
-async function submitQFGuess(code, playerId, guess) {
+// Elke gok draagt de vraagindex mee: komt een trage gok pas aan nadat de
+// vraag al onthuld is of de host al verder ging, dan wordt hij genegeerd
+// in plaats van stilletjes bij de VOLGENDE vraag te belanden.
+async function submitQFGuess(code, playerId, guess, index) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.quickfire) return;
+    if (!lobby.quickfire || lobby.quickfire.index !== index || lobby.quickfire.revealed) return;
     if (!lobby.quickfire.answers) lobby.quickfire.answers = {};
     if (lobby.quickfire.answers[playerId]) return;
-    lobby.quickfire.answers[playerId] = { guess, at: Date.now() };
+    lobby.quickfire.answers[playerId] = { guess, at: serverNow() };
   });
 }
 
@@ -338,26 +423,27 @@ async function revealPhotoRound(code, index, secondsAllowed) {
     const pr = lobby.photoRound;
     if (!pr || pr.index !== index || pr.revealed) return;
     const photo = pr.photos[pr.index];
+    let caught = false;
     for (const [voterId, a] of Object.entries(pr.answers || {})) {
       const voter = findPlayer(lobby, voterId);
       // Je kan geen punten krijgen door je eigen foto te "raden".
       if (voter && voter.name === photo.player) continue;
       if (a.guess === photo.player) {
-        const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
-        const pts = Math.max(1, Math.round((1 - elapsedAtGuess / secondsAllowed) * 8) + 2);
-        if (voter) voter.score = (voter.score || 0) + pts;
+        const pts = speedPoints((a.at - pr.questionStartAt) / 1000, secondsAllowed);
+        if (voter) { voter.score = (voter.score || 0) + pts; caught = true; }
       }
     }
+    if (caught) markUnmasked(findPlayerByName(lobby, photo.player));
     pr.revealed = true;
   });
 }
 
-async function submitPhotoGuess(code, playerId, guess) {
+async function submitPhotoGuess(code, playerId, guess, index) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.photoRound) return;
+    if (!lobby.photoRound || lobby.photoRound.index !== index || lobby.photoRound.revealed) return;
     if (!lobby.photoRound.answers) lobby.photoRound.answers = {};
     if (lobby.photoRound.answers[playerId]) return;
-    lobby.photoRound.answers[playerId] = { guess, at: Date.now() };
+    lobby.photoRound.answers[playerId] = { guess, at: serverNow() };
   });
 }
 
@@ -365,11 +451,35 @@ async function setHotOrNot(code, honState) {
   return Backend.updateLobby(code, (lobby) => { lobby.hotornot = honState; });
 }
 
-async function voteHotOrNot(code, targetPlayerId, voterId, vote) {
+// Bonusronde "Favoriete foto" (vervangt Hot or Not): één stem per speler,
+// niet op je eigen foto, enkel op foto's die in de ronde zitten.
+async function voteFavoritePhoto(code, voterId, targetPlayerId) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.hotornot || lobby.hotornot.targetId !== targetPlayerId) return;
-    if (!lobby.hotornot.votes) lobby.hotornot.votes = {};
-    lobby.hotornot.votes[voterId] = vote;
+    const fav = lobby.hotornot;
+    if (!fav || fav.stage !== 'favorite') return;
+    if (voterId === targetPlayerId || !(fav.candidates || []).includes(targetPlayerId)) return;
+    if (!fav.votes) fav.votes = {};
+    if (fav.votes[voterId]) return;
+    fav.votes[voterId] = targetPlayerId;
+  });
+}
+
+// Host-tool: speler uit de lobby halen (bv. iemand die afhaakte of per
+// ongeluk dubbel binnenkwam). De host zelf kan nooit verwijderd worden.
+async function removePlayer(code, playerId) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (playerId === lobby.hostId) return;
+    lobby.players = lobby.players.filter(p => p.id !== playerId);
+  });
+}
+
+// Host overnemen als de host wegvalt. Lukt enkel als de host intussen
+// niet al gewisseld is (expectedHostId), zodat twee spelers die tegelijk
+// tikken niet om beurten host worden.
+async function claimHost(code, playerId, expectedHostId) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (lobby.hostId !== expectedHostId || !findPlayer(lobby, playerId)) return;
+    lobby.hostId = playerId;
   });
 }
 
@@ -392,8 +502,7 @@ async function revealVerhoor(code, index, secondsAllowed) {
       if (voterId === q.playerId) continue;
       if (a.guess === q.playerId) {
         caught = true;
-        const remaining = Math.max(0, secondsAllowed - (a.at - v.questionStartAt) / 1000);
-        const pts = Math.max(1, Math.round(remaining) + 1);
+        const pts = speedPoints((a.at - v.questionStartAt) / 1000, secondsAllowed);
         const p = findPlayer(lobby, voterId);
         if (p) p.score = (p.score || 0) + pts;
       }
@@ -401,17 +510,18 @@ async function revealVerhoor(code, index, secondsAllowed) {
     if (caught) {
       const confessor = findPlayer(lobby, q.playerId);
       if (confessor) confessor.score = (confessor.score || 0) - 3;
+      markUnmasked(confessor);
     }
     v.revealed = true;
   });
 }
 
-async function submitVerhoorGuess(code, playerId, guess) {
+async function submitVerhoorGuess(code, playerId, guess, index) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.verhoor) return;
+    if (!lobby.verhoor || lobby.verhoor.index !== index || lobby.verhoor.revealed) return;
     if (!lobby.verhoor.answers) lobby.verhoor.answers = {};
     if (lobby.verhoor.answers[playerId]) return; // one guess per question
-    lobby.verhoor.answers[playerId] = { guess, at: Date.now() };
+    lobby.verhoor.answers[playerId] = { guess, at: serverNow() };
   });
 }
 
@@ -441,12 +551,12 @@ async function voteBiecht(code, targetPlayerId, voterId) {
   });
 }
 
-async function submitBiechtGuess(code, playerId, guess) {
+async function submitBiechtGuess(code, playerId, guess, index) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.biecht) return;
+    if (!lobby.biecht || lobby.biecht.stage !== 'playback' || lobby.biecht.index !== index || lobby.biecht.revealed) return;
     if (!lobby.biecht.answers) lobby.biecht.answers = {};
     if (lobby.biecht.answers[playerId]) return; // één gok per verhaal
-    lobby.biecht.answers[playerId] = { guess, at: Date.now() };
+    lobby.biecht.answers[playerId] = { guess, at: serverNow() };
   });
 }
 
@@ -463,10 +573,12 @@ async function revealBiechtStory(code, index) {
       // Je kan geen punten krijgen door je eigen verhaal te "raden".
       .filter(([voterId, a]) => voterId !== targetId && a.guess === targetId)
       .sort((a, b2) => a[1].at - b2[1].at);
-    if (correctGuessers.length) {
-      const winner = findPlayer(lobby, correctGuessers[0][0]);
-      if (winner) winner.score = (winner.score || 0) + 5;
-    }
+    // Elke juiste gokker krijgt punten — de snelste 10, daarna aflopend.
+    correctGuessers.forEach(([voterId], i) => {
+      const p = findPlayer(lobby, voterId);
+      if (p) p.score = (p.score || 0) + rankPoints(i);
+    });
+    if (correctGuessers.length) markUnmasked(findPlayer(lobby, targetId));
     b.revealed = true;
   });
 }
@@ -511,10 +623,12 @@ async function revealSoundtrackOwner(code, index) {
       // Je kan geen punten krijgen door je eigen nummer te "raden".
       .filter(([voterId, a]) => voterId !== track.playerId && a.guess === track.playerId)
       .sort((a, b) => a[1].at - b[1].at);
-    if (correctGuessers.length) {
-      const winner = findPlayer(lobby, correctGuessers[0][0]);
-      if (winner) winner.score = (winner.score || 0) + 5;
-    }
+    // Elke juiste gokker krijgt punten — de snelste 10, daarna aflopend.
+    correctGuessers.forEach(([voterId], i) => {
+      const p = findPlayer(lobby, voterId);
+      if (p) p.score = (p.score || 0) + rankPoints(i);
+    });
+    if (correctGuessers.length) markUnmasked(findPlayer(lobby, track.playerId));
     st.revealed = true;
   });
 }
@@ -542,18 +656,20 @@ async function revealSoundtrackDrink(code, index) {
   });
 }
 
-async function submitSoundtrackGuess(code, playerId, guess) {
+async function submitSoundtrackGuess(code, playerId, guess, index) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.soundtrack) return;
+    const st = lobby.soundtrack;
+    if (!st || st.index !== index || st.stage !== 'guessing' || st.revealed) return;
     if (!lobby.soundtrack.ownerAnswers) lobby.soundtrack.ownerAnswers = {};
     if (lobby.soundtrack.ownerAnswers[playerId]) return;
-    lobby.soundtrack.ownerAnswers[playerId] = { guess, at: Date.now() };
+    lobby.soundtrack.ownerAnswers[playerId] = { guess, at: serverNow() };
   });
 }
 
-async function submitSoundtrackDrinkGuess(code, playerId, drink) {
+async function submitSoundtrackDrinkGuess(code, playerId, drink, index) {
   return Backend.updateLobby(code, (lobby) => {
-    if (!lobby.soundtrack) return;
+    const st = lobby.soundtrack;
+    if (!st || st.index !== index || st.stage !== 'drink' || st.drinkRevealed) return;
     if (!lobby.soundtrack.drinkAnswers) lobby.soundtrack.drinkAnswers = {};
     if (lobby.soundtrack.drinkAnswers[playerId]) return;
     lobby.soundtrack.drinkAnswers[playerId] = drink;
@@ -563,7 +679,7 @@ async function submitSoundtrackDrinkGuess(code, playerId, drink) {
 window.GameOps = {
   submitDossier, reopenDossier, submitPhoto, setPhase, addScore,
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
-  setHotOrNot, voteHotOrNot,
+  setHotOrNot, voteFavoritePhoto, removePlayer, claimHost, speedPoints, rankPoints,
   setVerhoor, submitVerhoorGuess, revealVerhoor,
   setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht, submitBiechtGuess, revealBiechtStory, finalizeBiechtVote,
   setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess, revealSoundtrackOwner, revealSoundtrackDrink,

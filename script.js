@@ -173,7 +173,12 @@ function go(screenId) {
 // je de hele URL opnieuw laden om terug bij af te geraken.
 function leaveGame() {
   if (!window.confirm('Spel verlaten en teruggaan naar het startscherm?')) return;
+  // Nog vóór de start: jezelf uit de lobby halen, anders blijf je voor de
+  // rest als "Bezig..." in de lijst staan.
+  const removeSelf = (Session.code && Session.playerId && !Session.isHost && latestLobby && latestLobby.phase === 'lobby')
+    ? { code: Session.code, id: Session.playerId } : null;
   if (Session.unsub) { try { Session.unsub(); } catch (e) { /* ignore */ } }
+  if (removeSelf) GameOps.removePlayer(removeSelf.code, removeSelf.id).catch(() => {});
   // Vóór het wissen van Session.code/gameName — clearLocalDraftAndSession()
   // heeft die net nodig om de juiste localStorage-sleutel terug te vinden.
   clearLocalDraftAndSession();
@@ -299,6 +304,16 @@ function startFreshSession() {
   go('s-home');
 }
 
+// Alles wat spelers zelf typen (namen, antwoorden, bekentenissen, drankjes,
+// nummertitels) moet ontsnapt worden voor het via innerHTML in beeld komt —
+// anders breekt een '<' of '&' de weergave, of kan iemand code binnensmokkelen.
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+// Foto's worden enkel als data-URL van een afbeelding aanvaard (zo maakt
+// fileToResizedDataUrl ze ook aan) — al de rest wordt genegeerd.
+function safeImg(url) { return (typeof url === 'string' && /^data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+$/.test(url)) ? url : ''; }
+
 function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
@@ -389,7 +404,9 @@ function pickSessionQuestions() {
   // reliably reach the full cap; the guess itself still works fine with
   // just one known answer since guessers pick from the whole player
   // roster, not from a set of alternative answers).
-  const useReal = lobbyPlayers.length >= 2 && realPools.length > 0;
+  // In een echte lobby nooit demo-antwoorden met verzonnen namen gebruiken —
+  // zijn er geen echte antwoorden, dan slaat hostStartRound1 de ronde over.
+  const useReal = !!Session.code || (lobbyPlayers.length >= 2 && realPools.length > 0);
   const pools = useReal
     ? realPools
     : PARTY_QS.filter(q => DEMO_ANSWERS[q]).map(q => ({ label: q, answers: DEMO_ANSWERS[q] }));
@@ -474,15 +491,132 @@ function renderAllScreens(lobby) {
   renderRound4Intro(lobby);
   renderSoundtrack(lobby);
   renderRound5Intro(lobby);
+  refreshActiveScoreboard();
 }
+
+// Scoreborden werden vroeger maar één keer opgebouwd bij het openen van het
+// scherm. Punten die net daarna nog binnenkwamen (bv. de +5 van de
+// stemronde, of de drankjesbonus van het laatste nummer) ontbraken dan —
+// vooral op het toestel van de host, dat meteen doorschakelt na zijn eigen
+// schrijfactie. Nu wordt het zichtbare scorebord bij elke update ververst.
+const SCORE_SCREENS = { 's-round1-score': 1, 's-round2-score': 2, 's-round3-score': 3, 's-round4-score': 4 };
+
+function renderSkipNote(round) {
+  const el = document.getElementById(`r${round}-skip-note`);
+  if (!el) return;
+  const note = latestLobby && latestLobby.skipNotes && latestLobby.skipNotes['r' + round];
+  el.textContent = note || '';
+  el.style.display = note ? 'block' : 'none';
+}
+
+function refreshActiveScoreboard() {
+  const activeEl = document.querySelector('.screen.active');
+  if (!activeEl || !latestLobby) return;
+  const round = SCORE_SCREENS[activeEl.id];
+  if (round) {
+    buildScoreboard('scoreboard-r' + round, 0);
+    renderSkipNote(round);
+    if (round === 2) {
+      document.getElementById('r2score-host-btn').style.display = Session.isHost ? 'block' : 'none';
+      document.getElementById('r2score-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+    }
+  } else if (activeEl.id === 's-round5-final') {
+    const all = liveStandings();
+    if (!all) return;
+    renderFinalPodium(all);
+    buildScoreboard('scoreboard-final');
+    renderMostUnmasked(all);
+  }
+}
+
+// Slaat een ronde over (zonder nepspelers of demo-inhoud) en laat op het
+// scorebord zien waarom.
+async function skipRoundTo(round, phase, note) {
+  const skipNotes = { ...((latestLobby && latestLobby.skipNotes) || {}), ['r' + round]: note };
+  await withRetry(() => GameOps.setPhase(Session.code, phase, { skipNotes }));
+  updateLocalLobby({ phase, skipNotes });
+}
+
+let lastSnapshotAt = Date.now();
 
 function subscribeLobby() {
   if (Session.unsub) Session.unsub();
   Session.unsub = Backend.subscribe(Session.code, (lobby) => {
+    lastSnapshotAt = Date.now();
+    // Door de host verwijderd → netjes terug naar het startscherm.
+    if (Session.playerId && !lobby.players.some(p => p.id === Session.playerId)) {
+      handleRemovedFromLobby();
+      return;
+    }
+    // Wie host is, volgt nu altijd de lobby zelf (lobby.hostId) — zo kan
+    // een andere speler het overnemen als de host wegvalt.
+    const amHost = lobby.hostId === Session.playerId;
+    if (amHost !== Session.isHost) {
+      Session.isHost = amHost;
+      persistHostFlag();
+    }
     latestLobby = lobby;
     syncToLobbyPhase(lobby);
     renderAllScreens(lobby);
   });
+}
+
+function persistHostFlag() {
+  try {
+    const key = sessionStorageKey(Session.gameName, Session.code);
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved) { saved.isHost = Session.isHost; localStorage.setItem(key, JSON.stringify(saved)); }
+  } catch (e) { /* negeren */ }
+}
+
+function handleRemovedFromLobby() {
+  if (Session.unsub) { try { Session.unsub(); } catch (e) { /* ignore */ } }
+  clearLocalDraftAndSession();
+  Session.code = null; Session.playerId = null; Session.isHost = false; Session.unsub = null; Session.gameName = null;
+  latestLobby = null;
+  go('s-home');
+  setTimeout(() => window.alert('Je werd door de host uit de lobby verwijderd.'), 50);
+}
+
+// ── Host-tools ──
+async function removePlayerClick(playerId) {
+  if (!latestLobby || !Session.isHost) return;
+  const p = latestLobby.players.find(pl => pl.id === playerId);
+  if (!p || !window.confirm(`${p.name} uit de lobby verwijderen?`)) return;
+  try { await withRetry(() => GameOps.removePlayer(Session.code, playerId)); } catch (e) { window.alert('Verwijderen lukte niet — probeer opnieuw.'); }
+}
+
+function removeBtnHtml(p) {
+  return (Session.isHost && p.id !== Session.playerId)
+    ? `<button class="remove-player-btn" title="Verwijder speler" onclick="removePlayerClick('${esc(p.id)}')">✕</button>`
+    : '';
+}
+
+// Host overnemen: verschijnt pas voor gewone spelers als er tijdens het
+// spel al 90 seconden niets meer gebeurd is (geen enkele update van de
+// lobby) — dan is de host waarschijnlijk weg (telefoon leeg, app dicht).
+const HOST_IDLE_TAKEOVER_MS = 90 * 1000;
+const NO_TAKEOVER_SCREENS = ['s-home', 's-create', 's-join', 's-resume', 's-lobby', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting', 's-round5-final', 's-history'];
+
+function updateTakeoverButton() {
+  const btn = document.getElementById('takeover-btn');
+  if (!btn) return;
+  const activeEl = document.querySelector('.screen.active');
+  const show = !!(Session.code && latestLobby && !Session.isHost && latestLobby.phase !== 'lobby'
+    && activeEl && !NO_TAKEOVER_SCREENS.includes(activeEl.id)
+    && Date.now() - lastSnapshotAt > HOST_IDLE_TAKEOVER_MS);
+  btn.style.display = show ? 'block' : 'none';
+}
+setInterval(updateTakeoverButton, 5000);
+
+async function claimHostClick() {
+  if (!latestLobby || !Session.code) return;
+  if (!window.confirm('Neem jij het over als host? Doe dit enkel als de host echt weg is.')) return;
+  try {
+    await withRetry(() => GameOps.claimHost(Session.code, Session.playerId, latestLobby.hostId));
+  } catch (e) { window.alert('Overnemen lukte niet — controleer je verbinding en probeer opnieuw.'); }
+  lastSnapshotAt = Date.now();
+  updateTakeoverButton();
 }
 
 // ── Host: eerdere vragen/items herbekijken (read-only) ────────────────
@@ -662,9 +796,10 @@ function renderLobbyScreen(lobby) {
   document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length})`;
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
-      <div class="avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div>
-      <div class="player-name">${p.name}${p.id === Session.playerId ? ' (jij)' : ''}</div>
+      <div class="avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div>
+      <div class="player-name">${esc(p.name)}${p.id === Session.playerId ? ' (jij)' : ''}</div>
       <span class="player-status ${p.dossierDone ? 'status-done' : 'status-wait'}">${p.dossierDone ? 'Klaar' : 'Bezig...'}</span>
+      ${removeBtnHtml(p)}
     </div>`).join('');
 }
 
@@ -676,7 +811,7 @@ function renderWaitingScreen(lobby) {
   const notDone = lobby.players.filter(p => !p.dossierDone);
   const done = lobby.players.filter(p => p.dossierDone);
   document.getElementById('waiting-notdone-card').style.display = notDone.length ? 'block' : 'none';
-  notDoneEl.innerHTML = notDone.map(p => `<span class="pill">${p.name}</span>`).join('');
+  notDoneEl.innerHTML = notDone.map(p => `<span class="pill">${esc(p.name)}</span>`).join('');
   document.getElementById('waiting-donecount').textContent = `Klaar (${done.length}/${lobby.players.length})`;
   document.getElementById('waiting-donelist').textContent = done.map(p => p.name).join(', ') || '—';
 
@@ -694,6 +829,19 @@ function renderWaitingScreen(lobby) {
   minPlayersMsg.style.display = (Session.isHost && !enoughPlayers) ? 'block' : 'none';
   minPlayersMsg.textContent = `Nog minstens ${MIN_PLAYERS - lobby.players.length} speler(s) nodig om te starten (minimum ${MIN_PLAYERS}).`;
   document.getElementById('waiting-nothost-msg').style.display = Session.isHost ? 'none' : 'block';
+  document.getElementById('waiting-few-players-tip').style.display = (Session.isHost && lobby.players.length === 2) ? 'block' : 'none';
+  const others = lobby.players.filter(p => p.id !== Session.playerId);
+  const showManage = Session.isHost && others.length > 0 && lobby.phase === 'lobby';
+  document.getElementById('waiting-manage-card').style.display = showManage ? 'block' : 'none';
+  if (showManage) {
+    document.getElementById('waiting-manage-list').innerHTML = others.map(p => `
+      <div class="player-row">
+        <div class="avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div>
+        <div class="player-name">${esc(p.name)}</div>
+        <span class="player-status ${p.dossierDone ? 'status-done' : 'status-wait'}">${p.dossierDone ? 'Klaar' : 'Bezig...'}</span>
+        ${removeBtnHtml(p)}
+      </div>`).join('');
+  }
 }
 
 async function hostStartGame() {
@@ -917,7 +1065,7 @@ function renderDossierRow(question) {
     <div class="dossier-row ${answered ? 'done' : ''}" id="dq-${idx}-row">
       <div class="dossier-row-head" onclick="toggleDossierRow(${idx})">
         <span class="dossier-row-status" id="dq-${idx}-dot">${answered ? '✓' : '○'}</span>
-        <span class="dossier-row-label">${question}</span>
+        <span class="dossier-row-label">${esc(question)}</span>
       </div>
       ${expanded ? `
         <div class="dossier-row-body">
@@ -945,7 +1093,7 @@ function renderDossierOverview() {
   if (!listEl) return;
   const categories = buildDossierCategories();
   listEl.innerHTML = categories.map(cat => `
-    <div class="dossier-cat-title">${cat.name}</div>
+    <div class="dossier-cat-title">${esc(cat.name)}</div>
     ${cat.questions.map(q => renderDossierRow(q)).join('')}
   `).join('') + '<div class="dossier-cat-title">Foto & stem</div>' + renderDossierSpecialRow('photo') + renderDossierSpecialRow('voice');
   updateDossierProgress();
@@ -1064,9 +1212,9 @@ let qfHistory = [];
 
 registerHistoryViewer('quickfire', 'Vorige vraag', () => qfHistory, (item) => `
   <div class="card">
-    <div class="card-title">${item.label}</div>
-    <div class="card-sub" style="margin-bottom:10px;">"${item.answerText}" — van ${item.correctPlayer}</div>
-    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+    <div class="card-title">${esc(item.label)}</div>
+    <div class="card-sub" style="margin-bottom:10px;">"${esc(item.answerText)}" — van ${esc(item.correctPlayer)}</div>
+    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${esc(g.name)}: ${esc(g.guess)}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
   </div>
 `);
 
@@ -1080,7 +1228,12 @@ function renderRound1Intro(lobby) {
 async function hostStartRound1() {
   qfHistory = [];
   const picked = pickSessionQuestions();
-  const quickfire = { questions: picked.questions, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
+  if (!picked.questions.length) {
+    await skipRoundTo(1, 'quickfire-score', 'Ronde 1 werd overgeslagen: er waren nog geen ingevulde dossiervragen.');
+    showScoreR1();
+    return;
+  }
+  const quickfire = { questions: picked.questions, usePlayers: picked.usePlayers, index: 0, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setQuickfire(Session.code, quickfire));
   await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-active'));
   go('s-round1-q');
@@ -1120,7 +1273,7 @@ function renderQuickFire(lobby) {
     } else if (myGuess && myGuess.guess === p.name) {
       d.classList.add('pending');
     }
-    d.innerHTML = `<div class="answer-text">${p.name}</div>`;
+    d.innerHTML = `<div class="answer-text">${esc(p.name)}</div>`;
     // Iedereen mag altijd gokken, ook op je eigen antwoord — anders is
     // meteen duidelijk voor de rest van de kamer wie het juiste antwoord
     // is (die persoon zou dan als enige niets kunnen aanklikken). Geen
@@ -1159,8 +1312,8 @@ function renderQuickFire(lobby) {
     }
     const correctVoters = Object.entries(qf.answers || {}).filter(([, a]) => a.guess === q.correctPlayer).map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
     document.getElementById('r1-reveal-card').innerHTML = `
-      <div class="card-title">Het was ${q.correctPlayer}!</div>
-      <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => p.name).join(', ')}` : 'Niemand raadde het deze keer.'}</div>`;
+      <div class="card-title">Het was ${esc(q.correctPlayer)}!</div>
+      <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => esc(p.name)).join(', ')}` : 'Niemand raadde het deze keer.'}</div>`;
     const nextBtn = document.getElementById('r1-next-btn');
     const nextReady = !!qfNextBtnReady[qf.index];
     nextBtn.style.display = (Session.isHost && nextReady) ? 'block' : 'none';
@@ -1174,7 +1327,7 @@ let qfRevealInFlight = false;
 function tickQFCountdown() {
   const qf = latestLobby && latestLobby.quickfire;
   if (!qf || qf.revealed) { clearInterval(qfCountdownTimer); return; }
-  const elapsed = (Date.now() - qf.questionStartAt) / 1000;
+  const elapsed = (serverNow() - qf.questionStartAt) / 1000;
   const remaining = Math.max(0, QUICKFIRE_SECONDS - elapsed);
   document.getElementById('timer-num').textContent = Math.ceil(remaining);
   document.getElementById('timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / QUICKFIRE_SECONDS));
@@ -1199,9 +1352,9 @@ function tickQFCountdown() {
 async function submitQFGuess(name) {
   if (!latestLobby || !latestLobby.quickfire) return;
   const qf = latestLobby.quickfire;
-  const answers = { ...(qf.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
+  const answers = { ...(qf.answers || {}), [Session.playerId]: { guess: name, at: serverNow() } };
   renderQuickFire(updateLocalLobby({ quickfire: { ...qf, answers } }));
-  try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
+  try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name, qf.index)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
 }
 
 async function hostRevealQF() {
@@ -1229,7 +1382,7 @@ async function hostNextQF() {
       showScoreR1();
       return;
     }
-    const next = { ...qf, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+    const next = { ...qf, index: nextIndex, questionStartAt: serverNow(), answers: {}, revealed: false };
     await withRetry(() => GameOps.setQuickfire(Session.code, next));
     renderQuickFire(updateLocalLobby({ quickfire: next }));
   } finally {
@@ -1261,9 +1414,9 @@ let photoHistory = [];
 
 registerHistoryViewer('photoRound', 'Vorige foto', () => photoHistory, (item) => `
   <div class="card">
-    ${item.photo ? `<div style="width:100%;height:220px;border-radius:12px;background-image:url(${item.photo});background-size:cover;background-position:center;margin-bottom:10px;"></div>` : `<div style="font-size:48px;text-align:center;margin-bottom:10px;">${item.emoji || '🙂'}</div>`}
-    <div class="card-title">${item.player}</div>
-    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ` ✓ (+${g.pts})` : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+    ${safeImg(item.photo) ? `<div style="width:100%;height:220px;border-radius:12px;background-image:url(${safeImg(item.photo)});background-size:cover;background-position:center;margin-bottom:10px;"></div>` : `<div style="font-size:48px;text-align:center;margin-bottom:10px;">${item.emoji || '🙂'}</div>`}
+    <div class="card-title">${esc(item.player)}</div>
+    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${esc(g.name)}: ${esc(g.guess)}${g.correct ? ` ✓ (+${g.pts})` : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
   </div>
 `);
 
@@ -1281,7 +1434,8 @@ function pickRound2Photos() {
   // met een foto), nooit testspelers erbij mengen. En net als Ronde 1
   // hoeft niet IEDEREEN aan bod te komen — bij een grote groep zou dat
   // de ronde nodeloos lang maken, dus een willekeurige subset volstaat.
-  if (lobbyPlayers.length >= 2 && withPhotos.length >= 2) {
+  if (Session.code && withPhotos.length === 0) return null; // echte lobby zonder foto's → ronde overslaan
+  if (Session.code || (lobbyPlayers.length >= 2 && withPhotos.length >= 2)) {
     return {
       usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
       photos: shuffle(withPhotos).slice(0, ROUND_ITEM_CAP).map(p => ({ photo: p.photo.url, mask: p.photo, player: p.name })),
@@ -1293,7 +1447,12 @@ function pickRound2Photos() {
 async function hostStartRound2() {
   photoHistory = [];
   const picked = pickRound2Photos();
-  const photoRound = { photos: picked.photos, usePlayers: picked.usePlayers, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
+  if (!picked) {
+    await skipRoundTo(2, 'photoround-score', 'Ronde 2 werd overgeslagen: niemand had een foto toegevoegd.');
+    showScoreR2();
+    return;
+  }
+  const photoRound = { photos: picked.photos, usePlayers: picked.usePlayers, index: 0, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setPhotoRound(Session.code, photoRound));
   await withRetry(() => GameOps.setPhase(Session.code, 'photoround-active'));
   go('s-round2-q');
@@ -1318,12 +1477,12 @@ function renderPhotoRound(lobby) {
     photoEl.style.transition = 'none';
     if (photo.photo) {
       photoEl.textContent = '';
-      photoEl.style.backgroundImage = `url(${photo.photo})`;
+      photoEl.style.backgroundImage = `url(${safeImg(photo.photo)})`;
       photoEl.style.backgroundSize = 'cover';
       photoEl.style.backgroundPosition = 'center';
       const m = photo.mask;
       photoEl.innerHTML = (m && m.maskX !== undefined)
-        ? `<div class="r2-mask" style="left:${m.maskX}%;top:${m.maskY}%;width:${m.maskScale}%;">${maskSvgHtml()}</div>`
+        ? `<div class="r2-mask" style="left:${Number(m.maskX) || 0}%;top:${Number(m.maskY) || 0}%;width:${Number(m.maskScale) || 34}%;">${maskSvgHtml()}</div>`
         : '';
     } else {
       photoEl.style.backgroundImage = 'none';
@@ -1350,7 +1509,7 @@ function renderPhotoRound(lobby) {
     } else if (myGuess && myGuess.guess === p.name) {
       d.classList.add('pending');
     }
-    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
     // Iedereen mag altijd gokken, ook op je eigen foto — anders is meteen
     // duidelijk voor de rest van de kamer wie het is (geen punten op je
     // eigen foto wordt afgedwongen in de backend-scoring).
@@ -1378,7 +1537,7 @@ function renderPhotoRound(lobby) {
           let pts = 0;
           if (correct) {
             const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
-            pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
+            pts = GameOps.speedPoints(elapsedAtGuess, PHOTOROUND_SECONDS);
           }
           return { name: voter ? voter.name : '?', guess: a.guess, correct, pts };
         }),
@@ -1396,7 +1555,7 @@ function renderPhotoRound(lobby) {
       .filter(({ voter, a }) => voter && voter.name !== photo.player && a.guess === photo.player)
       .map(({ voter, a }) => {
         const elapsedAtGuess = (a.at - pr.questionStartAt) / 1000;
-        const pts = Math.max(1, Math.round((1 - elapsedAtGuess / PHOTOROUND_SECONDS) * 8) + 2);
+        const pts = GameOps.speedPoints(elapsedAtGuess, PHOTOROUND_SECONDS);
         return { name: voter.name, pts };
       })
       .sort((x, y) => y.pts - x.pts);
@@ -1406,11 +1565,11 @@ function renderPhotoRound(lobby) {
       const myEntry = me && correctVoters.find(v => v.name === me.name);
       flash.style.color = 'var(--accent2)';
       flash.textContent = myEntry ? `+${myEntry.pts} punten!` : 'Juist geraden!';
-      fb.innerHTML = `<span style="color:var(--green);">✓ ${correctVoters.map(v => `${v.name} (+${v.pts})`).join(', ')}</span>`;
+      fb.innerHTML = `<span style="color:var(--green);">✓ ${correctVoters.map(v => `${esc(v.name)} (+${v.pts})`).join(', ')}</span>`;
     } else {
       flash.style.color = '#e24b4a';
       flash.textContent = '0 punten';
-      fb.innerHTML = `<span style="color:#e24b4a;">⏱ Niemand raadde het — het was ${photo.player}</span>`;
+      fb.innerHTML = `<span style="color:#e24b4a;">⏱ Niemand raadde het — het was ${esc(photo.player)}</span>`;
     }
     const photoNextReady = !!photoNextBtnReady[pr.index];
     nb.style.display = (Session.isHost && photoNextReady) ? 'block' : 'none';
@@ -1428,7 +1587,7 @@ function tickPhotoRound() {
   const pr = latestLobby && latestLobby.photoRound;
   if (!pr || pr.revealed) { clearInterval(photoRoundTicker); return; }
   const photo = pr.photos[pr.index];
-  const elapsed = (Date.now() - pr.questionStartAt) / 1000;
+  const elapsed = (serverNow() - pr.questionStartAt) / 1000;
   const progress = Math.min(1, elapsed / PHOTOROUND_SECONDS);
   document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
   document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
@@ -1448,9 +1607,9 @@ function tickPhotoRound() {
 async function submitPhotoGuess(name) {
   if (!latestLobby || !latestLobby.photoRound) return;
   const pr = latestLobby.photoRound;
-  const answers = { ...(pr.answers || {}), [Session.playerId]: { guess: name, at: Date.now() } };
+  const answers = { ...(pr.answers || {}), [Session.playerId]: { guess: name, at: serverNow() } };
   renderPhotoRound(updateLocalLobby({ photoRound: { ...pr, answers } }));
-  try { await withRetry(() => GameOps.submitPhotoGuess(Session.code, Session.playerId, name)); } catch (e) { /* blijft lokaal zichtbaar */ }
+  try { await withRetry(() => GameOps.submitPhotoGuess(Session.code, Session.playerId, name, pr.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostRevealPhoto() {
@@ -1468,7 +1627,7 @@ async function hostNextPhoto() {
     showScoreR2();
     return;
   }
-  const next = { ...pr, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+  const next = { ...pr, index: nextIndex, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setPhotoRound(Session.code, next));
   renderPhotoRound(updateLocalLobby({ photoRound: next }));
 }
@@ -1497,9 +1656,9 @@ function buildScoreboard(containerId, myScoreFallback) {
   const ranks = ['🥇', '🥈', '🥉', '4', '5', '6'];
   document.getElementById(containerId).innerHTML = all.map((s, i) => `
     <div class="score-row">
-      <div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i]}</div>
+      <div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] ?? (i + 1)}</div>
       <div style="flex:1">
-        <div class="score-name" style="${s.you ? 'color:var(--accent);font-weight:600;' : ''}">${s.name}</div>
+        <div class="score-name" style="${s.you ? 'color:var(--accent);font-weight:600;' : ''}">${esc(s.name)}</div>
         <div style="margin-top:5px;background:var(--card-border);border-radius:3px;height:5px;overflow:hidden;">
           <div style="height:100%;width:${Math.round((s.pts / max) * 100)}%;background:${s.you ? 'var(--accent)' : 'var(--text-muted)'};border-radius:3px;"></div>
         </div>
@@ -1511,103 +1670,105 @@ function buildScoreboard(containerId, myScoreFallback) {
 function showScoreR1() {
   clearInterval(qfCountdownTimer);
   buildScoreboard('scoreboard-r1', 0);
+  renderSkipNote(1);
   go('s-round1-score');
 }
 function showScoreR2() {
   clearInterval(photoRoundTicker);
   buildScoreboard('scoreboard-r2', 0);
+  renderSkipNote(2);
   document.getElementById('r2score-host-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r2score-wait-msg').style.display = Session.isHost ? 'none' : 'block';
   go('s-round2-score');
 }
 
-// ── Hot or Not (bonusronde, geen score) ────
+// ── Bonus: Favoriete foto (vervangt Hot or Not, geen score) ────
+// Iedereen stemt één keer op de leukste foto van Ronde 2 (niet op die van
+// jezelf). Enkel foto's die in Ronde 2 al onthuld werden, zodat de namen
+// niets verklappen.
 
-function pickHotOrNotOrder() {
+function pickFavoriteCandidates() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  return shuffle(lobbyPlayers.filter(p => p.photo && p.photo.url).map(p => p.id)).slice(0, ROUND_ITEM_CAP);
+  const withPhotos = lobbyPlayers.filter(p => p.photo && p.photo.url);
+  const shownNames = latestLobby && latestLobby.photoRound ? latestLobby.photoRound.photos.map(ph => ph.player) : null;
+  const pool = shownNames ? withPhotos.filter(p => shownNames.includes(p.name)) : withPhotos;
+  return shuffle(pool.map(p => p.id));
 }
 
 async function hostStartHotOrNot() {
-  const order = pickHotOrNotOrder();
-  if (order.length === 0) {
+  const candidates = pickFavoriteCandidates();
+  if (candidates.length < 2) {
+    // Met minder dan 2 foto's valt er niets te kiezen — meteen door.
     await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
     go('s-round3-intro');
     renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
     return;
   }
-  const hon = { order, index: 0, targetId: order[0], votes: {} };
-  await withRetry(() => GameOps.setHotOrNot(Session.code, hon));
+  const fav = { stage: 'favorite', candidates, votes: {} };
+  await withRetry(() => GameOps.setHotOrNot(Session.code, fav));
   await withRetry(() => GameOps.setPhase(Session.code, 'hotornot'));
   go('s-hotornot');
-  // Don't wait on the subscription round-trip to populate the screen —
-  // render with what we just wrote so the host never sees a blank screen.
-  renderHotOrNot(updateLocalLobby({ hotornot: hon, phase: 'hotornot' }));
+  renderHotOrNot(updateLocalLobby({ hotornot: fav, phase: 'hotornot' }));
 }
 
 function renderHotOrNot(lobby) {
-  const photoEl = document.getElementById('hon-photo');
-  if (!photoEl) return;
-  if (!lobby.hotornot || !document.getElementById('s-hotornot').classList.contains('active')) return;
+  const grid = document.getElementById('fav-grid');
+  if (!grid) return;
+  const fav = lobby.hotornot;
+  if (!fav || fav.stage !== 'favorite' || !document.getElementById('s-hotornot').classList.contains('active')) return;
 
-  const hon = lobby.hotornot;
-  const target = lobby.players.find(p => p.id === hon.targetId);
-  if (!target) return;
-
-  if (target.photo && target.photo.url) {
-    photoEl.style.backgroundImage = `url(${target.photo.url})`;
-    photoEl.style.backgroundSize = 'cover';
-    photoEl.style.backgroundPosition = 'center';
-    photoEl.textContent = '';
-  }
-  document.getElementById('hon-name').textContent = target.name;
-
-  const votes = hon.votes || {};
+  const votes = fav.votes || {};
   const myVote = votes[Session.playerId];
-  const isTarget = Session.playerId === hon.targetId;
-  const disabled = !!myVote || isTarget;
-  const hotBtn = document.getElementById('hon-btn-hot');
-  const notBtn = document.getElementById('hon-btn-not');
-  hotBtn.disabled = disabled; notBtn.disabled = disabled;
-  hotBtn.style.opacity = disabled ? '0.4' : '1';
-  notBtn.style.opacity = disabled ? '0.4' : '1';
+  const tally = {};
+  Object.values(votes).forEach(id => { tally[id] = (tally[id] || 0) + 1; });
+  const maxVotes = Math.max(0, ...Object.values(tally));
+  const eligibleVoters = lobby.players.filter(p => fav.candidates.some(c => c !== p.id)).length;
+  const showResults = !!myVote || Object.keys(votes).length >= eligibleVoters;
 
-  const eligibleVoters = lobby.players.filter(p => p.id !== hon.targetId).length;
-  const votedCount = Object.keys(votes).length;
-  const showResults = !!myVote || isTarget || votedCount >= eligibleVoters;
-  document.getElementById('hon-results').style.display = showResults ? 'block' : 'none';
+  grid.innerHTML = '';
+  fav.candidates.forEach(id => {
+    const p = lobby.players.find(pl => pl.id === id);
+    if (!p || !p.photo) return;
+    const d = document.createElement('div');
+    d.className = 'fav-card';
+    const own = id === Session.playerId;
+    if (own) d.classList.add('own');
+    if (myVote === id) d.classList.add('pending');
+    if (showResults && maxVotes > 0 && tally[id] === maxVotes) d.classList.add('winner');
+    const count = showResults ? ` · ${tally[id] || 0} 🗳` : '';
+    d.innerHTML = `<div class="fav-photo" style="background-image:url(${safeImg(p.photo.url)});"></div><div class="fav-name">${esc(p.name)}${own ? ' (jij)' : ''}${count}</div>`;
+    if (!own && !myVote) d.onclick = () => castFavoriteVote(id);
+    grid.appendChild(d);
+  });
+
+  document.getElementById('fav-results').style.display = showResults ? 'block' : 'none';
   if (showResults) {
-    const hotCount = Object.values(votes).filter(v => v === 'hot').length;
-    const totalVotes = Object.values(votes).length;
-    const pct = totalVotes ? Math.round((hotCount / totalVotes) * 100) : 50;
-    document.getElementById('hon-bar').style.width = pct + '%';
-    document.getElementById('hon-tally').textContent = `${hotCount} 🔥 van ${totalVotes} stemmen`;
+    const winners = fav.candidates.filter(id => maxVotes > 0 && tally[id] === maxVotes)
+      .map(id => (lobby.players.find(pl => pl.id === id) || {}).name).filter(Boolean);
+    document.getElementById('fav-tally').innerHTML = winners.length
+      ? `<div class="card-title">🏆 ${esc(winners.join(' & '))}</div><div class="card-sub">${maxVotes} stem${maxVotes === 1 ? '' : 'men'} · ${Object.keys(votes).length} van ${eligibleVoters} gestemd</div>`
+      : '<div class="card-sub">Nog geen stemmen.</div>';
   }
-
+  document.getElementById('fav-sub').textContent = myVote
+    ? 'Gestemd! Kijk mee hoe de stemmen binnenkomen.'
+    : 'Welke foto van vanavond is jouw favoriet? Stem gewoon voor de lol — telt niet mee voor de score.';
   document.getElementById('hon-next-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('hon-wait-msg').style.display = Session.isHost ? 'none' : 'block';
 }
 
-async function castHotOrNotVote(vote) {
+async function castFavoriteVote(targetId) {
   if (!latestLobby || !latestLobby.hotornot) return;
-  const hon = latestLobby.hotornot;
-  const votes = { ...(hon.votes || {}), [Session.playerId]: vote };
-  renderHotOrNot(updateLocalLobby({ hotornot: { ...hon, votes } }));
-  try { await withRetry(() => GameOps.voteHotOrNot(Session.code, hon.targetId, Session.playerId, vote)); } catch (e) { /* blijft lokaal zichtbaar */ }
+  const fav = latestLobby.hotornot;
+  if ((fav.votes || {})[Session.playerId] || targetId === Session.playerId) return;
+  const votes = { ...(fav.votes || {}), [Session.playerId]: targetId };
+  renderHotOrNot(updateLocalLobby({ hotornot: { ...fav, votes } }));
+  try { await withRetry(() => GameOps.voteFavoritePhoto(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function nextHotOrNot() {
-  const hon = latestLobby.hotornot;
-  const nextIndex = hon.index + 1;
-  if (nextIndex >= hon.order.length) {
-    await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
-    go('s-round3-intro');
-    renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
-    return;
-  }
-  const next = { order: hon.order, index: nextIndex, targetId: hon.order[nextIndex], votes: {} };
-  await withRetry(() => GameOps.setHotOrNot(Session.code, next));
-  renderHotOrNot(updateLocalLobby({ hotornot: next }));
+  await withRetry(() => GameOps.setPhase(Session.code, 'round3-intro'));
+  go('s-round3-intro');
+  renderVerhoor(updateLocalLobby({ phase: 'round3-intro' }));
 }
 
 // ── Ronde 3: Verhoor (live, host-gestuurd) ─
@@ -1625,9 +1786,9 @@ let verhoorHistory = [];
 
 registerHistoryViewer('verhoor', 'Vorige bekentenis', () => verhoorHistory, (item) => `
   <div class="card">
-    <div class="card-sub" style="margin-bottom:10px;">${item.text}</div>
-    <div class="card-title">${item.confessorName}${item.caught ? ' (-3 punten)' : ''}</div>
-    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+    <div class="card-sub" style="margin-bottom:10px;">${esc(item.text)}</div>
+    <div class="card-title">${esc(item.confessorName)}${item.caught ? ' (-3 punten)' : ''}</div>
+    ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${esc(g.name)}: ${esc(g.guess)}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
   </div>
 `);
 
@@ -1636,7 +1797,8 @@ function pickRound3Confessions() {
   const real = lobbyPlayers
     .filter(p => p.dossierAnswers && p.dossierAnswers[CONFESSION_Q] && p.dossierAnswers[CONFESSION_Q].trim())
     .map(p => ({ text: `"${p.dossierAnswers[CONFESSION_Q].trim()}"`, playerId: p.id, playerName: p.name }));
-  if (real.length >= 2) {
+  if (Session.code && real.length === 0) return null; // echte lobby zonder bekentenissen → ronde overslaan
+  if (Session.code || real.length >= 2) {
     return {
       list: shuffle(real).slice(0, Math.min(ROUND_ITEM_CAP, real.length)),
       players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
@@ -1659,7 +1821,12 @@ function speakConfession(text) {
 async function hostStartVerhoor() {
   verhoorHistory = [];
   const picked = pickRound3Confessions();
-  const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false };
+  if (!picked) {
+    await skipRoundTo(3, 'round3-score', 'Ronde 3 werd overgeslagen: er waren nog geen bekentenissen ingevuld.');
+    showScoreR3();
+    return;
+  }
+  const verhoor = { list: picked.list, players: picked.players, index: 0, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setVerhoor(Session.code, verhoor));
   await withRetry(() => GameOps.setPhase(Session.code, 'verhoor-active'));
   go('s-round3-q');
@@ -1701,7 +1868,7 @@ function renderVerhoor(lobby) {
     } else if (myGuess && myGuess.guess === p.id) {
       d.classList.add('pending');
     }
-    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
     // Iedereen mag altijd gokken, ook op je eigen bekentenis — anders is
     // meteen duidelijk voor de rest van de kamer wie de dader is (geen
     // punten op je eigen bekentenis wordt afgedwongen in de backend).
@@ -1739,8 +1906,8 @@ function renderVerhoor(lobby) {
     const correctVoters = Object.entries(v.answers || {}).filter(([voterId, a]) => voterId !== q.playerId && a.guess === q.playerId).map(([voterId]) => v.players.find(p => p.id === voterId)).filter(Boolean);
     const caught = correctVoters.length > 0;
     document.getElementById('r3-reveal-card').innerHTML = `
-      <div class="card-title">Het was ${confessor ? confessor.name : '?'}!</div>
-      <div class="card-sub">${caught ? `Ontmaskerd door: ${correctVoters.map(p => p.name).join(', ')} (${confessor ? confessor.name : ''} verliest punten)` : 'Niemand raadde het op tijd — geen puntenverlies.'}</div>`;
+      <div class="card-title">Het was ${esc(confessor ? confessor.name : '?')}!</div>
+      <div class="card-sub">${caught ? `Ontmaskerd door: ${correctVoters.map(p => esc(p.name)).join(', ')} (${esc(confessor ? confessor.name : '')} verliest punten)` : 'Niemand raadde het op tijd — geen puntenverlies.'}</div>`;
     const nextBtn = document.getElementById('r3-next-btn');
     const verhoorNextReady = !!verhoorNextBtnReady[v.index];
     nextBtn.style.display = (Session.isHost && verhoorNextReady) ? 'block' : 'none';
@@ -1754,7 +1921,7 @@ let verhoorRevealInFlight = false;
 function tickVerhoorCountdown() {
   const v = latestLobby && latestLobby.verhoor;
   if (!v || v.revealed) { clearInterval(verhoorCountdownTimer); return; }
-  const elapsed = (Date.now() - v.questionStartAt) / 1000;
+  const elapsed = (serverNow() - v.questionStartAt) / 1000;
   const remaining = Math.max(0, VERHOOR_SECONDS - elapsed);
   document.getElementById('r3-timer-num').textContent = Math.ceil(remaining);
   document.getElementById('r3-timer-arc').style.strokeDashoffset = Math.round(188.5 * (1 - remaining / VERHOOR_SECONDS));
@@ -1770,9 +1937,9 @@ function tickVerhoorCountdown() {
 async function submitMyVerhoorGuess(targetId) {
   if (!latestLobby || !latestLobby.verhoor) return;
   const v = latestLobby.verhoor;
-  const answers = { ...(v.answers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
+  const answers = { ...(v.answers || {}), [Session.playerId]: { guess: targetId, at: serverNow() } };
   renderVerhoor(updateLocalLobby({ verhoor: { ...v, answers } }));
-  try { await withRetry(() => GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
+  try { await withRetry(() => GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId, v.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostRevealVerhoor() {
@@ -1790,7 +1957,7 @@ async function hostNextVerhoor() {
     showScoreR3();
     return;
   }
-  const next = { ...v, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+  const next = { ...v, index: nextIndex, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setVerhoor(Session.code, next));
   renderVerhoor(updateLocalLobby({ verhoor: next }));
 }
@@ -1798,6 +1965,7 @@ async function hostNextVerhoor() {
 function showScoreR3() {
   clearInterval(verhoorCountdownTimer);
   buildScoreboard('scoreboard-r3', 0);
+  renderSkipNote(3);
   go('s-round3-score');
 }
 
@@ -1836,7 +2004,7 @@ async function hostStartRound4() {
   const soundtrack = await pickSoundtrack();
   if (!soundtrack) {
     // Niemand vulde een lievelingsnummer in — er is niets om te raden.
-    await withRetry(() => GameOps.setPhase(Session.code, 'round4-score'));
+    await skipRoundTo(4, 'round4-score', 'Ronde 4 werd overgeslagen: niemand had een lievelingsnummer ingevuld.');
     showScoreR4();
     return;
   }
@@ -1875,6 +2043,7 @@ async function pickSoundtrack() {
 
 function showScoreR4() {
   buildScoreboard('scoreboard-r4', 0);
+  renderSkipNote(4);
   go('s-round4-score');
 }
 
@@ -1890,10 +2059,10 @@ let soundtrackHistory = [];
 
 registerHistoryViewer('soundtrack', 'Vorig nummer', () => soundtrackHistory, (item) => `
   <div class="card">
-    <div class="card-title">${item.trackName}${item.artist ? ' — ' + item.artist : ''}</div>
-    <div class="card-sub" style="margin-bottom:10px;">Eigenaar: ${item.owner}${item.drink ? ` · Drankje: ${item.drink}` : ''}</div>
-    ${item.ownerGuesses.length ? item.ownerGuesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte de eigenaar.</div>'}
-    ${item.drinkGuesses.length ? `<div class="label-sm" style="margin-top:8px;">Drankje-gokken:</div>` + item.drinkGuesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : ''}
+    <div class="card-title">${esc(item.trackName)}${item.artist ? ' — ' + esc(item.artist) : ''}</div>
+    <div class="card-sub" style="margin-bottom:10px;">Eigenaar: ${esc(item.owner)}${item.drink ? ` · Drankje: ${esc(item.drink)}` : ''}</div>
+    ${item.ownerGuesses.length ? item.ownerGuesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${esc(g.name)}: ${esc(g.guess)}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte de eigenaar.</div>'}
+    ${item.drinkGuesses.length ? `<div class="label-sm" style="margin-top:8px;">Drankje-gokken:</div>` + item.drinkGuesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${esc(g.name)}: ${esc(g.guess)}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : ''}
   </div>
 `);
 
@@ -1923,7 +2092,7 @@ function renderSoundtrack(lobby) {
     lastRenderedSoundtrackIndex = st.index;
     document.getElementById('st-embed').innerHTML = track.trackId
       ? ''
-      : `<div class="label-sm" style="text-align:center;">🔇 Geen YouTube-fragment gevonden — host, lees dit voor: <strong>${track.trackName}</strong></div>`;
+      : `<div class="label-sm" style="text-align:center;">🔇 Geen YouTube-fragment gevonden — host, lees dit voor: <strong>${esc(track.trackName)}</strong></div>`;
     // Auto-play for the host as soon as a new song comes up — no manual
     // tap needed. The button stays available as a fallback in case the
     // browser blocks autoplay, or someone wants to replay the fragment.
@@ -1952,7 +2121,7 @@ function renderSoundtrack(lobby) {
       const d = document.createElement('div');
       d.className = 'player-btn';
       if (myOwnerGuess && myOwnerGuess.guess === p.id) d.classList.add('pending');
-      d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+      d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
       // Iedereen mag altijd gokken, ook op je eigen nummer — anders is
       // meteen duidelijk voor de rest van de kamer wiens nummer het is
       // (geen punten op je eigen nummer wordt afgedwongen in de backend).
@@ -1968,13 +2137,20 @@ function renderSoundtrack(lobby) {
     const myDrinkGuess = (st.drinkAnswers || {})[Session.playerId];
     const drinkWrap = document.getElementById('st-drink-options');
     drinkWrap.innerHTML = '';
+    const correctDrink = track.drink || '(geen antwoord)';
+    if (st.drinkRevealed) {
+      document.getElementById('st-drink-label').textContent = `Het lievelingsdrankje van ${owner ? owner.name : 'deze persoon'}: ${correctDrink}`;
+    }
     (st.drinkOptions || []).forEach((opt) => {
       const d = document.createElement('div');
       d.className = 'player-btn';
-      if (myDrinkGuess === opt) d.classList.add('pending');
-      d.innerHTML = `<div class="pb-name" style="text-align:center;padding:4px 0;">${opt}</div>`;
+      if (st.drinkRevealed) {
+        if (opt === correctDrink) d.classList.add('correct');
+        else if (myDrinkGuess === opt) d.classList.add('wrong');
+      } else if (myDrinkGuess === opt) d.classList.add('pending');
+      d.innerHTML = `<div class="pb-name" style="text-align:center;padding:4px 0;">${esc(opt)}</div>`;
       // Zelfde reden als hierboven — iedereen mag altijd gokken.
-      if (!myDrinkGuess) d.onclick = () => submitSoundtrackDrinkGuess(opt);
+      if (!myDrinkGuess && !st.drinkRevealed) d.onclick = () => submitSoundtrackDrinkGuess(opt);
       drinkWrap.appendChild(d);
     });
   }
@@ -1982,14 +2158,19 @@ function renderSoundtrack(lobby) {
   document.getElementById('st-reveal').style.display = st.revealed ? 'block' : 'none';
   if (st.revealed) {
     const owner = st.players.find(p => p.id === track.playerId);
-    document.getElementById('st-reveal-card').innerHTML = `<div class="card-title">Dit was het nummer van ${owner ? owner.name : '?'}!</div><div class="card-sub">${track.trackName} — ${track.artist}</div>`;
+    document.getElementById('st-reveal-card').innerHTML = `<div class="card-title">Dit was het nummer van ${esc(owner ? owner.name : '?')}!</div><div class="card-sub">${esc(track.trackName)}${track.artist ? ' — ' + esc(track.artist) : ''}</div>`;
   }
 
   const nextBtn = document.getElementById('st-next-btn');
   nextBtn.style.display = Session.isHost ? 'block' : 'none';
   if (st.stage === 'guessing') {
-    nextBtn.textContent = 'Onthul eigenaar & drankje →';
+    nextBtn.textContent = 'Onthul eigenaar →';
     nextBtn.onclick = hostRevealSoundtrackOwner;
+  } else if (!st.drinkRevealed) {
+    // Eerst het juiste drankje tonen — vroeger ging "Volgende" meteen naar
+    // het volgende nummer en kreeg niemand het antwoord ooit te zien.
+    nextBtn.textContent = 'Onthul drankje →';
+    nextBtn.onclick = hostRevealSoundtrackDrinkStep;
   } else {
     nextBtn.textContent = st.index === st.list.length - 1 ? 'Bekijk scorebord →' : 'Volgende nummer →';
     nextBtn.onclick = hostNextSoundtrack;
@@ -2000,9 +2181,9 @@ function renderSoundtrack(lobby) {
 async function submitSoundtrackOwnerGuess(targetId) {
   if (!latestLobby || !latestLobby.soundtrack) return;
   const st = latestLobby.soundtrack;
-  const ownerAnswers = { ...(st.ownerAnswers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
+  const ownerAnswers = { ...(st.ownerAnswers || {}), [Session.playerId]: { guess: targetId, at: serverNow() } };
   renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, ownerAnswers } }));
-  try { await withRetry(() => GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
+  try { await withRetry(() => GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId, st.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 let soundtrackOwnerRevealInFlight = false;
@@ -2032,7 +2213,23 @@ async function submitSoundtrackDrinkGuess(drinkText) {
   const st = latestLobby.soundtrack;
   const drinkAnswers = { ...(st.drinkAnswers || {}), [Session.playerId]: drinkText };
   renderSoundtrack(updateLocalLobby({ soundtrack: { ...st, drinkAnswers } }));
-  try { await withRetry(() => GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText)); } catch (e) { /* blijft lokaal zichtbaar */ }
+  try { await withRetry(() => GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText, st.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
+}
+
+let soundtrackDrinkRevealInFlight = false;
+
+async function hostRevealSoundtrackDrinkStep() {
+  const st = latestLobby && latestLobby.soundtrack;
+  if (!st || st.drinkRevealed || soundtrackDrinkRevealInFlight) return;
+  soundtrackDrinkRevealInFlight = true;
+  try {
+    const res = await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, st.index));
+    if (res && res.soundtrack) latestLobby = res;
+    else updateLocalLobby({ soundtrack: { ...st, drinkRevealed: true } });
+    renderSoundtrack(latestLobby);
+  } finally {
+    soundtrackDrinkRevealInFlight = false;
+  }
 }
 
 let soundtrackNextInFlight = false;
@@ -2045,8 +2242,12 @@ async function hostNextSoundtrack() {
   if (soundtrackNextInFlight) return;
   soundtrackNextInFlight = true;
   try {
+    // Normaal al gebeurd via "Onthul drankje"; atomair en idempotent, dus
+    // veilig om hier nog eens te doen. Resultaat overnemen zodat de bonus
+    // al in het scorebord van de host zit.
+    const revealed = await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, latestLobby.soundtrack.index));
+    if (revealed && revealed.soundtrack) latestLobby = revealed;
     const st = latestLobby.soundtrack;
-    await withRetry(() => GameOps.revealSoundtrackDrink(Session.code, st.index));
     // Vastleggen vóór de index hieronder doorschuift en ownerAnswers/
     // drinkAnswers alweer leegmaakt — zie openHistoryViewer('soundtrack')
     // hierboven. Op dit moment zijn beide gok-rondes (eigenaar + drankje)
@@ -2100,11 +2301,11 @@ let biechtHistoryPushedFor = -1;
 
 registerHistoryViewer('biecht', 'Vorig verhaal', () => biechtHistory, (item) => `
   <div class="card">
-    <div class="card-title">${item.tellerName}</div>
+    <div class="card-title">${esc(item.tellerName)}</div>
     <audio id="history-replay-audio" controls style="width:100%;margin:10px 0;"></audio>
-    <button class="btn secondary" id="history-replay-btn" onclick="replayBiechtHistoryAudio('${item.targetId}')">▶ Beluister opnieuw</button>
+    <button class="btn secondary" id="history-replay-btn" onclick="replayBiechtHistoryAudio('${esc(item.targetId)}')">▶ Beluister opnieuw</button>
     <div style="margin-top:10px;">
-      ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${g.name}: ${g.guess}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
+      ${item.guesses.length ? item.guesses.map(g => `<div class="label-sm" style="color:${g.correct ? 'var(--green)' : '#e24b4a'};">${esc(g.name)}: ${esc(g.guess)}${g.correct ? ' ✓' : ' ✗'}</div>`).join('') : '<div class="label-sm">Niemand gokte.</div>'}
     </div>
   </div>
 `);
@@ -2346,7 +2547,7 @@ async function hostStartBiechtPlayback() {
     showFinal();
     return;
   }
-  const biecht = { stage: 'playback', order, index: 0, questionStartAt: Date.now(), answers: {}, revealed: false, votes: {} };
+  const biecht = { stage: 'playback', order, index: 0, questionStartAt: serverNow(), answers: {}, revealed: false, votes: {} };
   await withRetry(() => GameOps.setBiecht(Session.code, biecht));
   await withRetry(() => GameOps.setPhase(Session.code, 'biecht-active'));
   go('s-round5-play');
@@ -2388,7 +2589,7 @@ async function renderBiecht(lobby) {
       } else if (myGuess && myGuess.guess === p.id) {
         d.classList.add('pending');
       }
-      d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+      d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
       // Iedereen mag altijd gokken, ook op je eigen verhaal — anders is
       // meteen duidelijk voor de rest van de kamer van wie het verhaal is
       // (geen punten op je eigen verhaal wordt afgedwongen in de backend).
@@ -2425,8 +2626,8 @@ async function renderBiecht(lobby) {
         .filter(([voterId, a]) => voterId !== targetId && a.guess === targetId)
         .map(([voterId]) => lobby.players.find(p => p.id === voterId)).filter(Boolean);
       document.getElementById('biecht-reveal-card').innerHTML = `
-        <div class="card-title">Het was ${teller ? teller.name : '?'}!</div>
-        <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => p.name).join(', ')}` : 'Niemand raadde het.'}</div>`;
+        <div class="card-title">Het was ${esc(teller ? teller.name : '?')}!</div>
+        <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => esc(p.name)).join(', ')}` : 'Niemand raadde het.'}</div>`;
       revealBtn.style.display = 'none';
       nextBtn.style.display = Session.isHost ? 'block' : 'none';
       nextBtn.textContent = b.index === b.order.length - 1 ? 'Naar de stemronde →' : 'Volgende verhaal →';
@@ -2448,9 +2649,9 @@ async function renderBiecht(lobby) {
 async function submitBiechtGuess(targetId) {
   if (!latestLobby || !latestLobby.biecht) return;
   const b = latestLobby.biecht;
-  const answers = { ...(b.answers || {}), [Session.playerId]: { guess: targetId, at: Date.now() } };
+  const answers = { ...(b.answers || {}), [Session.playerId]: { guess: targetId, at: serverNow() } };
   renderBiecht(updateLocalLobby({ biecht: { ...b, answers } }));
-  try { await withRetry(() => GameOps.submitBiechtGuess(Session.code, Session.playerId, targetId)); } catch (e) { /* blijft lokaal zichtbaar */ }
+  try { await withRetry(() => GameOps.submitBiechtGuess(Session.code, Session.playerId, targetId, b.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
 
 async function hostRevealBiechtStory() {
@@ -2470,7 +2671,7 @@ function renderBiechtVoting(lobby, b) {
     const d = document.createElement('div');
     d.className = 'player-btn';
     if (myVote === pid) d.classList.add('pending');
-    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${p.letter}</div><div class="pb-name">${p.name}</div>`;
+    d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
     if (!myVote && p.id !== Session.playerId) d.onclick = () => castBiechtVote(pid);
     wrap.appendChild(d);
   });
@@ -2486,7 +2687,7 @@ function renderBiechtVoting(lobby, b) {
       const p = lobby.players.find(pl => pl.id === pid);
       return { name: p ? p.name : '?', count: tally[pid] || 0 };
     }).sort((a, b2) => b2.count - a.count);
-    document.getElementById('biecht-vote-tally').innerHTML = rows.map(r => `<div class="score-row"><div class="score-name">${r.name}</div><div class="score-pts">${r.count} stem${r.count === 1 ? '' : 'men'}</div></div>`).join('');
+    document.getElementById('biecht-vote-tally').innerHTML = rows.map(r => `<div class="score-row"><div class="score-name">${esc(r.name)}</div><div class="score-pts">${r.count} stem${r.count === 1 ? '' : 'men'}</div></div>`).join('');
   }
   document.getElementById('biecht-vote-next-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('biecht-vote-wait-msg').style.display = Session.isHost ? 'none' : 'block';
@@ -2503,7 +2704,7 @@ async function hostNextBiechtPlay() {
     renderBiecht(updateLocalLobby({ biecht: next }));
     return;
   }
-  const next = { ...b, index: nextIndex, questionStartAt: Date.now(), answers: {}, revealed: false };
+  const next = { ...b, index: nextIndex, questionStartAt: serverNow(), answers: {}, revealed: false };
   await withRetry(() => GameOps.setBiecht(Session.code, next));
   renderBiecht(updateLocalLobby({ biecht: next }));
 }
@@ -2527,7 +2728,8 @@ async function finishBiechtVoting() {
   biechtVoteFinalizeInFlight = true;
   try {
     await withRetry(() => GameOps.finalizeBiechtVote(Session.code));
-    await withRetry(() => GameOps.setPhase(Session.code, 'final'));
+    const res = await withRetry(() => GameOps.setPhase(Session.code, 'final'));
+    if (res && res.players) latestLobby = res; // bevat de bonuspunten van de stemronde
     showFinal();
   } finally {
     biechtVoteFinalizeInFlight = false;
@@ -2553,12 +2755,21 @@ function showFinal() {
   launchConfetti();
 }
 
+// "Meest Ontmaskerd" = wie het vaakst door de anderen juist geraden werd
+// (timesUnmasked wordt bijgehouden bij elke onthulling, zie backend.js) —
+// niet langer gewoon de laagste score.
 function renderMostUnmasked(all) {
   const el = document.getElementById('most-unmasked');
-  if (!el || all.length < 2) { if (el) el.style.display = 'none'; return; }
-  const loser = all[all.length - 1];
+  const players = (latestLobby && latestLobby.players) || [];
+  if (!el || players.length < 2) { if (el) el.style.display = 'none'; return; }
+  const max = Math.max(0, ...players.map(p => p.timesUnmasked || 0));
   el.style.display = 'block';
-  el.innerHTML = `<div class="card-title" style="color:var(--accent2);">🫣 Meest Ontmaskerd</div><div class="card-sub">${loser.name} — helemaal doorzien deze avond.</div>`;
+  if (max === 0) {
+    el.innerHTML = `<div class="card-title" style="color:var(--accent2);">🫣 Meest Ontmaskerd</div><div class="card-sub">Niemand werd ontmaskerd — wat een mysterieuze groep.</div>`;
+    return;
+  }
+  const names = players.filter(p => (p.timesUnmasked || 0) === max).map(p => esc(p.name)).join(' & ');
+  el.innerHTML = `<div class="card-title" style="color:var(--accent2);">🫣 Meest Ontmaskerd</div><div class="card-sub">${names} — ${max} keer doorzien deze avond.</div>`;
 }
 
 function renderFinalPodium(all) {
@@ -2573,7 +2784,7 @@ function renderFinalPodium(all) {
     <div class="podium-slot ${l.cls}">
       <div class="podium-avatar">${l.rank.you ? '👑' : '🎭'}</div>
       <div class="podium-bar">${l.medal}</div>
-      <div class="podium-name">${l.rank.name}</div>
+      <div class="podium-name">${esc(l.rank.name)}</div>
       <div class="podium-pts">${l.rank.pts} pt</div>
     </div>`).join('');
 }
@@ -2645,3 +2856,26 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
   if (codeInput) codeInput.value = saved.code;
   go('s-resume');
 })();
+
+// Klokverschil met de server één keer meten bij het laden (zie serverNow in
+// backend.js) — timers en snelheidspunten lopen zo gelijk op elk toestel.
+if (window.Backend && Backend.syncClock) Backend.syncClock();
+
+// Bescherming tegen dubbel tikken op "Volgende"/"Onthul" (makkelijk gedaan
+// op een telefoon): zolang de eerste tik nog bezig is, doet een tweede niets.
+// Zonder dit kon een tweede tik vanuit dezelfde verouderde staat een item
+// opnieuw starten of er één overslaan.
+function onceAtATime(fn) {
+  let busy = false;
+  return async (...args) => {
+    if (busy) return;
+    busy = true;
+    try { return await fn(...args); } finally { busy = false; }
+  };
+}
+hostNextPhoto = onceAtATime(hostNextPhoto);
+hostNextVerhoor = onceAtATime(hostNextVerhoor);
+hostNextBiechtPlay = onceAtATime(hostNextBiechtPlay);
+hostRevealBiechtStory = onceAtATime(hostRevealBiechtStory);
+hostStartHotOrNot = onceAtATime(hostStartHotOrNot);
+nextHotOrNot = onceAtATime(nextHotOrNot);

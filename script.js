@@ -1025,6 +1025,30 @@ async function submitDossierAndWait() {
   go('s-waiting');
 }
 
+// Laat een speler die al "Dossier indienen" tikte, toch nog terugkeren
+// naar het overzicht om iets aan te passen — bv. als bleek dat ze zich
+// verklikt had, of als een eerdere inzending onvolledig/verkeerd was.
+// Herbouwt sessionDossierQs/Session.dossierAnswers rechtstreeks uit wat
+// al bij de backend staat (de lokale draft is na een geslaagde inzending
+// immers gewist), en markeert foto + stem als al afgehandeld — die twee
+// moesten sowieso al "klaar" zijn om de eerste keer te kunnen indienen.
+async function reopenDossierForEditing() {
+  if (!latestLobby) return;
+  const player = latestLobby.players.find(p => p.id === Session.playerId);
+  if (!player) return;
+  sessionDossierQs = Object.keys(player.dossierAnswers || {});
+  Session.dossierAnswers = { ...(player.dossierAnswers || {}) };
+  Session.photoStepDone = true;
+  Session.voiceStepDone = true;
+  dossierExpandedRow = null;
+  saveLocalAnswersDraft();
+  try { await withRetry(() => GameOps.reopenDossier(Session.code, Session.playerId)); } catch (e) { /* lokaal kan er alvast verder bewerkt worden; een volgende "Dossier indienen" probeert opnieuw te synchroniseren */ }
+  resetPhotoState();
+  resetBiechtRecording();
+  go('s-dossier');
+  renderDossierOverview();
+}
+
 // ── Ronde 1: Quick Fire (live, host-gestuurd) ──
 // Zelfde patroon als Ronde 3: lobby.quickfire is de bron van waarheid,
 // de host beheert timing en kent scores toe zodat niemand dubbel telt.

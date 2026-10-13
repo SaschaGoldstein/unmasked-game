@@ -255,6 +255,18 @@ async function submitDossier(code, playerId, answers) {
   });
 }
 
+// Zet dossierDone terug op false zodat de host/andere spelers in de
+// wachtkamer zien dat deze speler weer aan het bewerken is (en de host
+// niet per ongeluk start terwijl iemand zijn dossier herbekijkt) — de
+// eerder ingediende antwoorden blijven gewoon staan tot er opnieuw
+// ingediend wordt via submitDossier.
+async function reopenDossier(code, playerId) {
+  return Backend.updateLobby(code, (lobby) => {
+    const p = findPlayer(lobby, playerId);
+    if (p) p.dossierDone = false;
+  });
+}
+
 async function submitPhoto(code, playerId, photo) {
   return Backend.updateLobby(code, (lobby) => {
     const p = findPlayer(lobby, playerId);
@@ -549,7 +561,7 @@ async function submitSoundtrackDrinkGuess(code, playerId, drink) {
 }
 
 window.GameOps = {
-  submitDossier, submitPhoto, setPhase, addScore,
+  submitDossier, reopenDossier, submitPhoto, setPhase, addScore,
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
   setHotOrNot, voteHotOrNot,
   setVerhoor, submitVerhoorGuess, revealVerhoor,

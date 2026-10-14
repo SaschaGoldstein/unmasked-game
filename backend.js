@@ -104,6 +104,8 @@ class LocalBackend {
     return this.channels[code];
   }
 
+  async getLobby(code) { return this._read(code); }
+
   async updateLobby(code, mutateFn) {
     const lobby = this._read(code);
     if (!lobby) throw new Error('Lobby niet gevonden. Klopt de code?');
@@ -269,6 +271,13 @@ class FirebaseBackend {
       transaction.set(ref, lobby);
     });
     return { code, playerId };
+  }
+
+  // Eenmalig de lobby lezen (zonder te abonneren) — gebruikt om te checken
+  // of een lokaal onthouden speler nog in de lobby zit voor we hem herstellen.
+  async getLobby(code) {
+    const snap = await this.fs.getDoc(await this._doc(code));
+    return snap.exists() ? snap.data() : null;
   }
 
   subscribe(code, cb) {

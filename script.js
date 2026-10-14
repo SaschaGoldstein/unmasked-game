@@ -240,8 +240,86 @@ function leaveGame() {
 // gewone geval (één lopend spel) automatisch voor te vullen.
 const LAST_SESSION_POINTER_KEY = 'unmasked:lastSession';
 
-function sessionStorageKey(gameName, code) { return `unmasked_${gameName}_${code}`; }
-function answersStorageKey(gameName, code) { return `unmasked_${gameName}_${code}_dossier`; }
+// Spelnaam genormaliseerd in de sleutel (trim + kleine letters), net zoals
+// gameNamesMatch in backend.js. Vroeger was de sleutel hoofdlettergevoelig:
+// wie "opa Lou party" intikte voor een spel dat als "Opa Lou party" was
+// aangemaakt, vond zijn eigen (host-)sessie niet terug en kwam via
+// "Meedoen" als NIEUWE speler in de lobby — de host stond er dan meermaals in.
+function normGameName(gameName) { return (gameName || '').trim().toLowerCase(); }
+function sessionStorageKey(gameName, code) { return `unmasked_${normGameName(gameName)}_${code}`; }
+function answersStorageKey(gameName, code) { return `unmasked_${normGameName(gameName)}_${code}_dossier`; }
+
+// Alle op dit toestel opgeslagen sessies voor een lobbycode (ongeacht hoe de
+// spelnaam toen getypt werd — ook oude, hoofdlettergevoelige sleutels).
+function savedSessionsForCode(code, name) {
+  const out = [];
+  const n = (name || '').trim().toLowerCase();
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith('unmasked_') || !key.endsWith('_' + code)) continue;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { saved = null; }
+      if (!saved || !saved.playerId || saved.code !== code) continue;
+      if (n && (saved.name || '').trim().toLowerCase() !== n) continue;
+      out.push(saved);
+    }
+  } catch (e) { /* localStorage niet beschikbaar — negeren */ }
+  return out;
+}
+
+// Kies uit de lokaal onthouden identiteiten voor deze lobby de beste die nog
+// in de lobby zit: eerst de host, dan eender welke nog aanwezige speler.
+// Zonder lobby-info (offline) valt dit terug op de host-sessie, anders de eerste.
+function pickSavedSession(candidates, lobby) {
+  if (!candidates.length) return null;
+  if (lobby) {
+    const present = candidates.filter(c => lobby.players.some(p => p.id === c.playerId));
+    return present.find(c => c.playerId === lobby.hostId) || present[0] || null;
+  }
+  return candidates.find(c => c.isHost) || candidates[0];
+}
+
+async function findSavedSession(code, name) {
+  const candidates = savedSessionsForCode(code, name);
+  if (!candidates.length) return null;
+  let lobby = null;
+  try { lobby = Backend.getLobby ? await Backend.getLobby(code) : null; } catch (e) { lobby = null; }
+  const pick = pickSavedSession(candidates, lobby);
+  if (pick && lobby) pick.gameName = lobby.gameName; // officiële schrijfwijze
+  return pick;
+}
+
+// Zet een gevonden opgeslagen identiteit terug als actieve sessie (zelfde
+// speler-ID, host-rol volgt daarna automatisch uit lobby.hostId).
+function restoreSavedSession(saved) {
+  Session.code = saved.code;
+  Session.playerId = saved.playerId;
+  Session.isHost = !!saved.isHost;
+  Session.gameName = saved.gameName;
+  saveLocalSession(saved.name, saved.gameName); // herschrijft onder de genormaliseerde sleutel
+  subscribeLobby();
+  let draft = null;
+  try {
+    draft = JSON.parse(localStorage.getItem(answersStorageKey(saved.gameName, saved.code))
+      || localStorage.getItem(`unmasked_${saved.gameName}_${saved.code}_dossier`) || 'null');
+  } catch (e) { draft = null; }
+  if (draft && Array.isArray(draft.questions) && draft.questions.length) {
+    sessionDossierQs = draft.questions;
+    Session.dossierAnswers = draft.answers || {};
+    Session.photoStepDone = !!draft.photoStepDone;
+    Session.voiceStepDone = !!draft.voiceStepDone;
+    dossierExpandedRow = null;
+    resetPhotoState();
+    resetBiechtRecording();
+    renderDossierOverview();
+    go('s-dossier');
+    return;
+  }
+  // Host of speler met ingediend dossier: de live-synchronisatie springt van
+  // hieruit vanzelf naar de juiste fase (lobby, wachtkamer, lopende ronde).
+  go(Session.isHost ? 's-lobby' : 's-waiting');
+}
 
 function saveLocalSession(name, gameName) {
   Session.gameName = gameName;
@@ -272,6 +350,8 @@ function clearLocalDraftAndSession() {
     if (Session.gameName && Session.code) {
       localStorage.removeItem(sessionStorageKey(Session.gameName, Session.code));
       localStorage.removeItem(answersStorageKey(Session.gameName, Session.code));
+      localStorage.removeItem(`unmasked_${Session.gameName}_${Session.code}`);
+      localStorage.removeItem(`unmasked_${Session.gameName}_${Session.code}_dossier`);
     }
     localStorage.removeItem(LAST_SESSION_POINTER_KEY);
   } catch (e) { /* negeren */ }
@@ -288,42 +368,13 @@ async function resumeSession() {
     errEl.style.display = 'block';
     return;
   }
-  let saved;
-  try { saved = JSON.parse(localStorage.getItem(sessionStorageKey(gameName, code)) || 'null'); } catch (e) { saved = null; }
-  if (!saved || !saved.playerId || !saved.name || saved.name.trim().toLowerCase() !== name.toLowerCase()) {
-    errEl.textContent = 'Geen opgeslagen sessie gevonden met exact die naam, spelnaam en code op dit toestel.';
+  const saved = await findSavedSession(code, name);
+  if (!saved || (gameName && normGameName(saved.gameName) !== normGameName(gameName))) {
+    errEl.textContent = 'Geen opgeslagen sessie gevonden met die naam, spelnaam en code op dit toestel.';
     errEl.style.display = 'block';
     return;
   }
-  Session.code = saved.code;
-  Session.playerId = saved.playerId;
-  Session.isHost = !!saved.isHost;
-  Session.gameName = saved.gameName;
-  try { localStorage.setItem(LAST_SESSION_POINTER_KEY, JSON.stringify({ gameName: saved.gameName, code: saved.code })); } catch (e) { /* negeren */ }
-  subscribeLobby();
-
-  let draft = null;
-  try { draft = JSON.parse(localStorage.getItem(answersStorageKey(gameName, code)) || 'null'); } catch (e) { draft = null; }
-  if (draft && Array.isArray(draft.questions) && draft.questions.length) {
-    // Dossier nog niet (volledig) ingediend — de draft wordt pas gewist
-    // bij een geslaagde GameOps.submitDossier (zie submitDossierAndWait),
-    // dus enkel al bestaan betekent hier al "nog niet klaar". Herlaad
-    // alle tot dusver ingevulde antwoorden in het overzicht.
-    sessionDossierQs = draft.questions;
-    Session.dossierAnswers = draft.answers || {};
-    Session.photoStepDone = !!draft.photoStepDone;
-    Session.voiceStepDone = !!draft.voiceStepDone;
-    dossierExpandedRow = null;
-    resetPhotoState();
-    resetBiechtRecording();
-    renderDossierOverview();
-    go('s-dossier');
-    return;
-  }
-  // Dossier al volledig ingediend (of geen bruikbare opgeslagen voortgang)
-  // — laat de live-synchronisatie vanaf hier vanzelf vooruitspringen naar
-  // de huidige fase van het spel.
-  go('s-waiting');
+  restoreSavedSession(saved);
 }
 
 function startFreshSession() {
@@ -774,6 +825,14 @@ async function joinLobbyClick() {
   const btn = document.getElementById('join-lobby-btn');
   if (btn) btn.disabled = true;
   try {
+    // Al eerder in deze lobby gezeten op dit toestel (bv. de host die de
+    // pagina herlaadde of zijn eigen uitnodigingslink opende)? Dan NIET als
+    // nieuwe speler toevoegen, maar je eigen plek (en host-rol) terugnemen.
+    const saved = await findSavedSession(code, name);
+    if (saved && normGameName(saved.gameName) === normGameName(gameName)) {
+      restoreSavedSession(saved);
+      return;
+    }
     const res = await Backend.joinLobby(code, name, gameName);
     Session.code = res.code; Session.playerId = res.playerId; Session.isHost = false;
     saveLocalSession(name, gameName);
@@ -3223,6 +3282,7 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
   if (!ptr || !ptr.gameName || !ptr.code) return;
   let saved;
   try { saved = JSON.parse(localStorage.getItem(sessionStorageKey(ptr.gameName, ptr.code)) || 'null'); } catch (e) { saved = null; }
+  if (!saved) saved = pickSavedSession(savedSessionsForCode(ptr.code), null);
   if (!saved || !saved.name) return;
   const nameInput = document.getElementById('resume-name-input');
   const gameNameInput = document.getElementById('resume-gamename-input');

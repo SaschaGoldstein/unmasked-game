@@ -1020,6 +1020,9 @@ function renderLobbyScreen(lobby) {
   document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length})`;
   document.getElementById('lobby-tv-btn').style.display = Session.isHost ? 'block' : 'none';
   renderHostRecovery();
+  const dossierBtn = document.getElementById('lobby-dossier-btn');
+  const me = lobby.players.find(p => p.id === Session.playerId);
+  if (dossierBtn) dossierBtn.textContent = (me && me.dossierDone) ? '✓ Dossier ingediend — bekijken of aanpassen' : 'Mijn dossier invullen →';
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
       <div class="avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div>
@@ -1205,6 +1208,14 @@ function goDossier() {
     Session.photoStepDone = !!draft.photoStepDone;
     Session.voiceStepDone = !!draft.voiceStepDone;
   } else {
+    // Geen lokale voortgang, maar al ingediend (de lokale draft wordt na
+    // indienen gewist, of je zit op een ander toestel)? Dan het ingediende
+    // dossier terug openen i.p.v. een leeg dossier met nieuwe vragen.
+    const me = latestLobby && latestLobby.players.find(p => p.id === Session.playerId);
+    if (me && (me.dossierDone || Object.keys(me.dossierAnswers || {}).length)) {
+      reopenDossierForEditing();
+      return;
+    }
     resetDossierState();
   }
   dossierExpandedRow = null;

@@ -658,6 +658,7 @@ function subscribeLobby() {
       persistHostFlag();
     }
     ensureHostKey(lobby);
+    keepLobbyAlive(lobby);
     hydrateGuesses(lobby);
     if (handleGameNumberChange(lobby)) return;
     latestLobby = lobby;
@@ -693,6 +694,28 @@ async function ensureHostKey(lobby) {
     /* volgende snapshot probeert opnieuw */
   } finally {
     ensuringHostKey = false;
+  }
+}
+
+// ── Lobby in leven houden ──
+// Lobby, foto's en stemopnames krijgen een vervaldatum (automatisch wissen).
+// Zolang iemand de lobby open heeft, schuift die mee op — anders zou een
+// dossier dat een paar dagen vóór het feest werd ingevuld, al gewist zijn.
+// Eén keer per uur per toestel, en enkel als de vervaldatum binnen 6 dagen valt.
+let lastKeepAliveAt = 0;
+let keepAliveBusy = false;
+async function keepLobbyAlive(lobby) {
+  if (keepAliveBusy || !Session.code || !Backend.extendExpiry) return;
+  if (Date.now() - lastKeepAliveAt < 60 * 60 * 1000) return;
+  if (expiryMs(lobby.expiresAt) > Date.now() + 6 * 24 * 60 * 60 * 1000) { lastKeepAliveAt = Date.now(); return; }
+  keepAliveBusy = true;
+  try {
+    await Backend.extendExpiry(Session.code, lobby.players.map(p => p.id));
+    lastKeepAliveAt = Date.now();
+  } catch (e) {
+    /* volgende snapshot probeert opnieuw */
+  } finally {
+    keepAliveBusy = false;
   }
 }
 

@@ -74,8 +74,19 @@ function serverNow() { return Date.now() + clockOffsetMs; }
 // zodra expiresAt verstreken is, mits er een TTL-policy op dat veld staat
 // (zie README-opruiming). Foto's, bekentenissen en stemmen blijven zo niet
 // eindeloos bewaard.
-const LOBBY_TTL_MS = 48 * 60 * 60 * 1000;
+// Dossiers worden vaak dagen vóór het feest ingevuld, dus: 7 dagen, en
+// zolang iemand de lobby open heeft, schuift die termijn mee op
+// (zie keepLobbyAlive in script.js). Pas 7 dagen na het laatste gebruik
+// wordt alles gewist.
+const LOBBY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 function lobbyExpiry() { return new Date(Date.now() + LOBBY_TTL_MS); }
+function expiryMs(v) {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  if (v.toMillis) return v.toMillis();
+  if (v instanceof Date) return v.getTime();
+  return 0;
+}
 
 function nameTaken(lobby, name) {
   const n = (name || '').trim().toLowerCase();
@@ -199,6 +210,10 @@ class LocalBackend {
 
   async getVoice(code, playerId) {
     return localStorage.getItem(this._voiceKey(code, playerId));
+  }
+
+  async extendExpiry(code) {
+    return this.updateLobby(code, (lobby) => { lobby.expiresAt = Date.now() + LOBBY_TTL_MS; });
   }
 }
 
@@ -359,6 +374,24 @@ class FirebaseBackend {
     const ref = await this._voiceDoc(code, playerId);
     const snap = await this.fs.getDoc(ref);
     return snap.exists() ? snap.data().dataUrl : null;
+  }
+
+  // Houdt een actieve lobby in leven: verschuift expiresAt van de lobby en
+  // van alle bestaande foto's/stemopnames. Enkel bestaande documenten
+  // aanraken (merge), zodat de Firestore-regels (url/dataUrl verplicht) blijven kloppen.
+  async extendExpiry(code, playerIds) {
+    await this._ready;
+    const until = lobbyExpiry();
+    for (const id of playerIds) {
+      for (const sub of ['photos', 'voices']) {
+        const ref = this.fs.doc(this.db, 'lobbies', code, sub, id);
+        try {
+          const snap = await this.fs.getDoc(ref);
+          if (snap.exists()) await this.fs.setDoc(ref, { expiresAt: until }, { merge: true });
+        } catch (e) { /* volgende keer opnieuw */ }
+      }
+    }
+    await this.updateLobby(code, (lobby) => { lobby.expiresAt = until; });
   }
 }
 

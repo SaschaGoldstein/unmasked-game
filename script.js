@@ -133,6 +133,8 @@ let pendingPhotoDataUrl = null;
 
 const Session = {
   code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {}, gameName: null,
+  // Geheime host-sleutel (enkel op het toestel van de host) — zie host-herstel.
+  hostKey: null,
   // Foto en stem-opname zijn eigen stappen in het dossier-overzicht,
   // elk met hun eigen "klaar" (bevestigd of bewust overgeslagen) —
   // zie goDossierPhotoStep()/goDossierVoiceStep() hieronder.
@@ -297,6 +299,7 @@ function restoreSavedSession(saved) {
   Session.playerId = saved.playerId;
   Session.isHost = !!saved.isHost;
   Session.gameName = saved.gameName;
+  Session.hostKey = saved.hostKey || null;
   saveLocalSession(saved.name, saved.gameName); // herschrijft onder de genormaliseerde sleutel
   subscribeLobby();
   let draft = null;
@@ -326,6 +329,7 @@ function saveLocalSession(name, gameName) {
   try {
     localStorage.setItem(sessionStorageKey(gameName, Session.code), JSON.stringify({
       name, code: Session.code, gameName, playerId: Session.playerId, isHost: Session.isHost,
+      hostKey: Session.hostKey || null,
     }));
     localStorage.setItem(LAST_SESSION_POINTER_KEY, JSON.stringify({ gameName, code: Session.code }));
   } catch (e) { /* localStorage niet beschikbaar (bv. privénavigatie) — negeren */ }
@@ -653,6 +657,7 @@ function subscribeLobby() {
       Session.isHost = amHost;
       persistHostFlag();
     }
+    ensureHostKey(lobby);
     hydrateGuesses(lobby);
     if (handleGameNumberChange(lobby)) return;
     latestLobby = lobby;
@@ -660,6 +665,103 @@ function subscribeLobby() {
     syncToLobbyPhase(lobby);
     renderAllScreens(lobby);
   });
+}
+
+// ── Host-herstel ──
+// De host bewaart een geheime sleutel; de lobby kent enkel de hash. Met de
+// herstellink neemt de host op eender welk toestel zijn plek terug.
+// Zorgt dat de host op dit toestel een geldige sleutel heeft:
+//  - lobby zonder sleutel (oudere lobby)        → nieuwe sleutel vastleggen;
+//  - sleutel van mij, maar niet op dit toestel → nieuwe sleutel (de oude
+//    link vervalt, de nieuwe staat in de lobby);
+//  - sleutel van iemand anders (host overgenomen) → niets doen, zodat de
+//    oorspronkelijke host via zijn link zijn rol kan terugnemen.
+let ensuringHostKey = false;
+async function ensureHostKey(lobby) {
+  if (ensuringHostKey || !Session.code || lobby.hostId !== Session.playerId) return;
+  const hk = lobby.hostKey;
+  if (hk && hk.hash && hk.playerId !== Session.playerId) return;
+  ensuringHostKey = true;
+  try {
+    if (hk && hk.hash && Session.hostKey && (await hashHostKey(Session.hostKey)) === hk.hash) return;
+    const key = makeHostKey();
+    const hash = await hashHostKey(key);
+    await withRetry(() => GameOps.setHostKey(Session.code, Session.playerId, hash));
+    Session.hostKey = key;
+    persistHostKey();
+  } catch (e) {
+    /* volgende snapshot probeert opnieuw */
+  } finally {
+    ensuringHostKey = false;
+  }
+}
+
+function persistHostKey() {
+  try {
+    const key = sessionStorageKey(Session.gameName, Session.code);
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved) { saved.hostKey = Session.hostKey || null; localStorage.setItem(key, JSON.stringify(saved)); }
+  } catch (e) { /* negeren */ }
+}
+
+function hostRecoveryUrl() {
+  if (!Session.code || !Session.hostKey) return null;
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('host', Session.code);
+  url.searchParams.set('key', Session.hostKey);
+  return url.toString();
+}
+
+function renderHostRecovery() {
+  const box = document.getElementById('host-recovery-box');
+  if (!box) return;
+  const ok = !!(Session.isHost && Session.hostKey && latestLobby && latestLobby.hostKey
+    && latestLobby.hostKey.playerId === Session.playerId);
+  box.style.display = ok ? 'block' : 'none';
+}
+
+function copyHostRecoveryLink() {
+  const url = hostRecoveryUrl();
+  if (!url) return;
+  navigator.clipboard?.writeText(url).catch(() => {});
+  const btn = document.getElementById('host-recovery-copy-btn');
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = 'Herstellink gekopieerd ✓';
+    setTimeout(() => { btn.textContent = original; }, 2000);
+  }
+}
+
+function sendHostRecoveryToSelf() {
+  const url = hostRecoveryUrl();
+  if (!url) return;
+  const label = Session.gameName ? ` (${Session.gameName}, ${Session.code})` : ` (${Session.code})`;
+  const text = encodeURIComponent(`🔑 Mijn Unmasked host-herstellink${label} — niet delen: ${url}`);
+  window.open(`https://wa.me/?text=${text}`, '_blank');
+}
+
+// Opent de app met ?host=CODE&key=SLEUTEL → sleutel controleren tegen de
+// lobby en de host-identiteit op dit toestel terugzetten.
+async function recoverHostFromLink(code, key) {
+  go('s-join');
+  const errEl = document.getElementById('join-error');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+  const codeInput = document.getElementById('join-code');
+  if (codeInput) codeInput.value = code;
+  let lobby = null;
+  try { lobby = await Backend.getLobby(code); } catch (e) { lobby = null; }
+  if (!lobby) { showErr('Lobby niet gevonden — misschien is het spel al verlopen.'); return; }
+  const hk = lobby.hostKey;
+  let hash = null;
+  try { hash = await hashHostKey(key); } catch (e) { hash = null; }
+  if (!hk || !hk.hash || hk.hash !== hash) { showErr('Deze host-herstellink klopt niet (meer) voor deze lobby.'); return; }
+  const me = lobby.players.find(p => p.id === hk.playerId);
+  if (!me) { showErr('Je host-plek staat niet meer in deze lobby.'); return; }
+  if (lobby.hostId !== me.id) {
+    try { await withRetry(() => GameOps.reclaimHost(code, me.id)); } catch (e) { showErr('Host-rol terugnemen lukte niet — controleer je verbinding en probeer opnieuw.'); return; }
+  }
+  restoreSavedSession({ name: me.name, code, gameName: lobby.gameName, playerId: me.id, isHost: true, hostKey: key });
 }
 
 function persistHostFlag() {
@@ -800,8 +902,9 @@ async function createLobbyClick() {
   const btn = document.getElementById('create-lobby-btn');
   if (btn) btn.disabled = true;
   try {
-    const { code, playerId } = await Backend.createLobby(name, DEFAULT_MAX_PLAYERS, gameName);
-    Session.code = code; Session.playerId = playerId; Session.isHost = true;
+    const hostKey = makeHostKey();
+    const { code, playerId } = await Backend.createLobby(name, DEFAULT_MAX_PLAYERS, gameName, await hashHostKey(hostKey));
+    Session.code = code; Session.playerId = playerId; Session.isHost = true; Session.hostKey = hostKey;
     saveLocalSession(name, gameName);
     subscribeLobby();
     go('s-lobby');
@@ -844,7 +947,19 @@ async function joinLobbyClick() {
     go('s-dossier');
     renderDossierOverview();
   } catch (e) {
-    errEl.textContent = e.message; errEl.style.display = 'block';
+    let msg = e.message;
+    // Naam bezet door de host zelf? Dan is dit vrijwel zeker de host op een
+    // ander toestel — wijs naar de herstellink in plaats van "kies een andere naam".
+    if (msg === NAME_TAKEN_MSG) {
+      try {
+        const lobby = await Backend.getLobby(code);
+        const host = lobby && lobby.players.find(p => p.id === lobby.hostId);
+        if (host && host.name.trim().toLowerCase() === name.toLowerCase()) {
+          msg = 'Ben jij de host? Open dan je 🔑 host-herstellink om je plek terug te nemen. Die vind je in de lobby op het toestel waarmee je het spel aanmaakte.';
+        }
+      } catch (e2) { /* gewone foutmelding houden */ }
+    }
+    errEl.textContent = msg; errEl.style.display = 'block';
   } finally {
     joinLobbyInFlight = false;
     if (btn) btn.disabled = false;
@@ -904,6 +1019,7 @@ function renderLobbyScreen(lobby) {
   if (gameNameEl) gameNameEl.textContent = lobby.gameName || '—';
   document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length})`;
   document.getElementById('lobby-tv-btn').style.display = Session.isHost ? 'block' : 'none';
+  renderHostRecovery();
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
       <div class="avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div>
@@ -3246,6 +3362,20 @@ function tvTick() {
 // die param niet meer zien en zou een oude lokale sessie het verse
 // linkje foutief overschrijven met het "Welkom terug"-scherm.
 const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join');
+const hadHostLinkOnLoad = new URL(window.location.href).searchParams.has('host');
+
+// ── Host-herstellink (?host=CODE&key=SLEUTEL) ──────
+(function recoverHostFromUrl() {
+  const url = new URL(window.location.href);
+  const code = (url.searchParams.get('host') || '').trim().toUpperCase();
+  const key = (url.searchParams.get('key') || '').trim();
+  if (!code) return;
+  url.searchParams.delete('host');
+  url.searchParams.delete('key');
+  window.history.replaceState({}, '', url.toString());
+  if (!key) return;
+  recoverHostFromLink(code, key);
+})();
 
 // ── Rechtstreeks uitnodigen via link ──────
 // copyInviteCode() deelt een link met ?join=CODE&spel=NAAM erin, zodat
@@ -3276,7 +3406,7 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
 // De voorgevulde velden blijven aanpasbaar, zodat dit ook werkt wanneer
 // iemand bewust wil terugkeren naar een ANDER, ouder opgeslagen spel.
 (function checkLocalSessionOnLoad() {
-  if (hadJoinLinkOnLoad || tvMode) return;
+  if (hadJoinLinkOnLoad || hadHostLinkOnLoad || tvMode) return;
   let ptr;
   try { ptr = JSON.parse(localStorage.getItem(LAST_SESSION_POINTER_KEY) || 'null'); } catch (e) { ptr = null; }
   if (!ptr || !ptr.gameName || !ptr.code) return;

@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Unmasked</title>
-  <link rel="stylesheet" href="style.css?v=45" />
+  <link rel="stylesheet" href="style.css?v=46" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
@@ -84,6 +84,14 @@
         <button class="btn secondary" style="flex:1;" onclick="shareInviteEmail()">✉️ E-mail</button>
       </div>
       <button class="btn ghost" id="lobby-tv-btn" style="display:none;margin:-10px 0 14px;" onclick="copyTvLink()">📺 Tv-scherm gebruiken? Kopieer de tv-link</button>
+      <div class="card" id="host-recovery-box" style="display:none;margin-bottom:20px;">
+        <div class="card-title">🔑 Host-herstellink</div>
+        <div class="card-sub" style="margin-bottom:12px;">Bewaar deze link voor jezelf (niet delen!). Valt je telefoon uit of wissel je van toestel, dan neem je hiermee meteen je plek als host terug.</div>
+        <div style="display:flex;gap:10px;width:100%;">
+          <button class="btn secondary" style="flex:1;" id="host-recovery-copy-btn" onclick="copyHostRecoveryLink()">Kopieer link</button>
+          <button class="btn secondary" style="flex:1;" onclick="sendHostRecoveryToSelf()">💬 Naar mezelf</button>
+        </div>
+      </div>
       <div class="section-title" style="font-size:17px;margin-bottom:12px;" id="lobby-player-count">Spelers (1/6)</div>
       <div class="player-list" id="lobby-player-list"></div>
       <button class="btn" onclick="goDossier()" style="margin-top:auto;">Mijn dossier invullen →</button>
@@ -593,10 +601,10 @@
     </div>
   </div>
 
-<script src="firebase-config.js?v=45"></script>
-<script src="backend.js?v=45"></script>
-<script src="youtube-config.js?v=45"></script>
-<script src="youtube.js?v=45"></script>
-<script src="script.js?v=45"></script>
+<script src="firebase-config.js?v=46"></script>
+<script src="backend.js?v=46"></script>
+<script src="youtube-config.js?v=46"></script>
+<script src="youtube.js?v=46"></script>
+<script src="script.js?v=46"></script>
 </body>
 </html>

@@ -41,6 +41,25 @@ function makeLobbyCode() {
 
 function makeId() { return Math.random().toString(36).slice(2, 10); }
 
+// ── Host-herstel ────────────────────────────────────────────────────
+// Bij het aanmaken krijgt de host een geheime sleutel. In de lobby staat
+// enkel de HASH ervan (lobby.hostKey = { hash, playerId }) — wie de lobby
+// leest, kent de sleutel dus niet. Met de herstellink (?host=CODE&key=...)
+// kan de host op eender welk toestel zijn eigen plek en host-rol terugnemen,
+// ook als het oorspronkelijke toestel weg is of de opslag gewist werd.
+function makeHostKey() {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
+}
+
+async function hashHostKey(key) {
+  const data = new TextEncoder().encode('unmasked-host:' + key);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ── Gedeelde klok ───────────────────────────────────────────────────
 // Telefoons lopen nooit exact gelijk. Timers en snelheidspunten vergelijken
 // tijdstempels van verschillende toestellen, dus zonder correctie onthulde
@@ -116,12 +135,13 @@ class LocalBackend {
 
   async syncClock() { clockOffsetMs = 0; }
 
-  async createLobby(hostName, maxPlayers, gameName) {
+  async createLobby(hostName, maxPlayers, gameName, hostKeyHash) {
     let code = makeLobbyCode();
     for (let i = 0; i < 10 && this._read(code); i++) code = makeLobbyCode();
     const playerId = makeId();
     const lobby = {
       code, hostId: playerId, maxPlayers, gameName,
+      hostKey: hostKeyHash ? { hash: hostKeyHash, playerId } : null,
       phase: 'lobby', round: 0,
       players: [newPlayer(playerId, hostName, 0)],
       createdAt: Date.now(), expiresAt: lobbyExpiry().getTime(),
@@ -229,7 +249,7 @@ class FirebaseBackend {
     } catch (e) { clockOffsetMs = 0; /* geen meting mogelijk — eigen klok gebruiken */ }
   }
 
-  async createLobby(hostName, maxPlayers, gameName) {
+  async createLobby(hostName, maxPlayers, gameName, hostKeyHash) {
     await this._ready;
     const playerId = makeId();
     let code = null;
@@ -240,6 +260,7 @@ class FirebaseBackend {
       const ref = this.fs.doc(this.db, 'lobbies', candidate);
       const lobby = {
         code: candidate, hostId: playerId, maxPlayers, gameName,
+        hostKey: hostKeyHash ? { hash: hostKeyHash, playerId } : null,
         phase: 'lobby', round: 0,
         players: [newPlayer(playerId, hostName, 0)],
         createdAt: Date.now(), expiresAt: lobbyExpiry(),
@@ -590,6 +611,26 @@ async function claimHost(code, playerId, expectedHostId) {
   });
 }
 
+// Lobby's van vóór de herstellink (of na een host-overname): de huidige
+// host legt alsnog een eigen sleutel vast.
+async function setHostKey(code, playerId, hash) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (lobby.hostId !== playerId) return;
+    // Nooit de sleutel van een ándere (oorspronkelijke) host overschrijven.
+    if (lobby.hostKey && lobby.hostKey.hash && lobby.hostKey.playerId !== playerId) return;
+    lobby.hostKey = { hash, playerId };
+  });
+}
+
+// Host-herstel via de herstellink: de eigenaar van de sleutel wordt opnieuw
+// host, ook als iemand het intussen had overgenomen.
+async function reclaimHost(code, playerId) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!findPlayer(lobby, playerId)) return;
+    lobby.hostId = playerId;
+  });
+}
+
 async function setVerhoor(code, verhoorState) {
   return Backend.updateLobby(code, (lobby) => { lobby.verhoor = verhoorState; });
 }
@@ -760,7 +801,7 @@ async function submitSoundtrackDrinkGuess(code, playerId, drink, index) { return
 window.GameOps = {
   submitDossier, reopenDossier, submitPhoto, setPhase, addScore, setSettings, startRematch,
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
-  setHotOrNot, voteFavoritePhoto, removePlayer, claimHost, speedPoints, rankPoints,
+  setHotOrNot, voteFavoritePhoto, removePlayer, claimHost, setHostKey, reclaimHost, speedPoints, rankPoints,
   setVerhoor, submitVerhoorGuess, revealVerhoor,
   setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht, submitBiechtGuess, revealBiechtStory, finalizeBiechtVote,
   setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess, revealSoundtrackOwner, revealSoundtrackDrink,

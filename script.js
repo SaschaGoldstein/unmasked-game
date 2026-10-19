@@ -9,10 +9,10 @@
 
 const DEMO_ANSWERS = {
   'Ik word chagrijnig van:': [{ text: 'Als mensen te laat komen', player: 'Lien' }, { text: 'Natte handdoeken op de vloer', player: 'Thomas' }, { text: 'Slechte wifi tijdens een film', player: 'Emma' }, { text: 'Als iemand mijn eten opeet', player: 'Kobe' }, { text: 'Reply-all mails', player: 'Nina' }, { text: 'Niet doorlopen in de supermarkt', player: 'Sander' }],
-  'De mooiste plek op de wereld waar ik ben geweest:': [{ text: 'Lissabon, met te weinig geld', player: 'Lien' }, { text: 'Een camping in de Ardennen met kapotte tent', player: 'Kobe' }, { text: 'Bali, net voor het te toeristisch werd', player: 'Emma' }, { text: 'Thuis, gewoon in mijn eigen tuin', player: 'Sander' }, { text: 'IJsland in de regen, alsnog prachtig', player: 'Nina' }, { text: 'Een strand in Portugal zonder bereik', player: 'Thomas' }],
+  'De mooiste plek waar ik ooit geweest ben:': [{ text: 'Lissabon, met te weinig geld', player: 'Lien' }, { text: 'Een camping in de Ardennen met kapotte tent', player: 'Kobe' }, { text: 'Bali, net voor het te toeristisch werd', player: 'Emma' }, { text: 'Thuis, gewoon in mijn eigen tuin', player: 'Sander' }, { text: 'IJsland in de regen, alsnog prachtig', player: 'Nina' }, { text: 'Een strand in Portugal zonder bereik', player: 'Thomas' }],
   'Ik geef het liefst geld uit aan:': [{ text: 'Sneakers die ik nooit draag', player: 'Thomas' }, { text: 'Planten die daarna doodgaan', player: 'Emma' }, { text: 'Concerttickets last minute', player: 'Lien' }, { text: 'Eten bij de bakker om 8u', player: 'Sander' }, { text: 'Online cursussen die ik niet afmaak', player: 'Nina' }, { text: 'Gadgets van AliExpress', player: 'Kobe' }],
   'Dit heb ik het laatste gegoogled:': [{ text: 'Hoe lang kan een mens zonder slaap?', player: 'Nina' }, { text: 'Calorieën frietje mayo', player: 'Kobe' }, { text: 'Weer morgen om 6u', player: 'Sander' }, { text: 'Symptomen burnout test', player: 'Emma' }, { text: 'Goedkoopste vlucht Barcelona', player: 'Lien' }, { text: 'Hoe kook je een ei perfect?', player: 'Thomas' }],
-  'De beste manier om het weekend te beginnen:': [{ text: 'Pancakes maken in pyjama', player: 'Emma' }, { text: 'Zo lang mogelijk in bed blijven', player: 'Thomas' }, { text: 'Croissant en koffie buiten', player: 'Lien' }, { text: 'Vroeg sporten zodat de rest vrij is', player: 'Nina' }, { text: 'Netflix aan, telefoon uit', player: 'Sander' }, { text: 'Snoozen tot 12u, schuldig voelen, herhalen', player: 'Kobe' }],
+  'Mijn ideale zondag ziet eruit als:': [{ text: 'Pancakes maken in pyjama', player: 'Emma' }, { text: 'Zo lang mogelijk in bed blijven', player: 'Thomas' }, { text: 'Croissant en koffie buiten', player: 'Lien' }, { text: 'Vroeg sporten zodat de rest vrij is', player: 'Nina' }, { text: 'Netflix aan, telefoon uit', player: 'Sander' }, { text: 'Snoozen tot 12u, schuldig voelen, herhalen', player: 'Kobe' }],
 };
 
 const PLAYERS = [
@@ -59,50 +59,68 @@ const PARTY_QUESTION_CATEGORIES = [
   { name: 'Gewoontes & Dagelijks leven', questions: [
     'Ik word chagrijnig van:',
     'Mijn geheime slechte gewoonte is:',
-    'De beste manier om het weekend te beginnen:',
     'Dit doe ik als eerste als ik thuiskom:',
-    'Hier kan ik absoluut niet mee overweg:',
     'Mijn vaste slaaphouding is:',
-    'Zo ziet mijn typische zondagochtend eruit:',
+    'Mijn ochtendroutine in drie woorden:',
+    'Dit eet ik als niemand kijkt:',
+    'Mijn guilty pleasure op tv:',
+    'Dit ligt altijd op mijn nachtkastje:',
   ]},
-  { name: 'Geld & Bezittingen', questions: [
+  { name: 'Geld & Spullen', questions: [
     'Ik geef het liefst geld uit aan:',
     'Mijn meest onnodige aankoop ooit:',
-    'Dit heb ik gekocht en nooit gebruikt:',
-    'Hier heb ik al geld aan besteed zonder het af te maken:',
+    'Dit spulletje zou ik nooit weggooien:',
+    'Als ik de lotto win, koop ik als eerste:',
   ]},
   { name: 'Digitaal & Social Media', questions: [
     'Dit heb ik het laatste gegoogled:',
-    'Dit staat als eerste op mijn startscherm:',
-    'Zo lang kan ik zonder mijn telefoon:',
     'Mijn meest gebruikte emoji is:',
-    'Dit zijn de mensen die ik op Instagram het meest stalk:',
+    'De app waar ik veel te veel tijd in steek:',
+    'Mijn schermtijd per dag is ongeveer:',
+    'Het laatste nummer dat ik op repeat had:',
   ]},
   { name: 'Persoonlijkheid & Geheimen', questions: [
     'Het rare feit over mezelf dat ik normaal verberg:',
     'Ik heb ooit gelogen over:',
-    'Mijn grootste ongerechtvaardigde schuldgevoel:',
-    'Dit vind ik stiekem heel erg fijn maar durf ik niet toe te geven:',
-    'Iets waar ik stiekem trots op ben maar niemand vertel:',
     'Dit is mijn meest irrationele angst:',
+    'Iets waar ik stiekem trots op ben:',
+    'Mijn verborgen talent is:',
+    'Hier kan ik echt niet tegen mijn verlies:',
+  ]},
+  { name: 'Vroeger', questions: [
+    'Het beroep dat ik had gewild als kind:',
+    'Mijn eerste idool of crush was:',
+    'Het stoutste dat ik ooit op school deed:',
+    'Mijn bijnaam van vroeger:',
+    'Mijn eerste job of vakantiejob was:',
   ]},
   { name: 'Relaties & Sociale situaties', questions: [
     'Zo reageer ik als iemand mij beledigt:',
-    'Dit soort mensen vermijd ik op feestjes:',
-    'Mijn strategie als ik iemand niet meer wil spreken:',
-    'De meest ongemakkelijke situatie die ik ooit heb meegemaakt:',
+    'Mijn strategie om een feestje vroeg te verlaten:',
+    'De meest ongemakkelijke situatie die ik ooit meemaakte:',
+    'Mijn rol in de groep is altijd:',
+    'Dit zeg ik veel te vaak:',
   ]},
-  { name: 'Dromen & Ambities', questions: [
-    'Als ik één dag lang iemand anders kon zijn, dan:',
-    'Dit zou ik doen als ik morgen oneindig veel geld had:',
-    'Het beroep dat ik had gewild als kind:',
+  { name: 'Eten, reizen & vrije tijd', questions: [
+    'De mooiste plek waar ik ooit geweest ben:',
+    'Mijn ideale zondag ziet eruit als:',
+    'Dit gerecht kan ik als enige goed maken:',
+    'Dit eten lust ik absoluut niet:',
+    'Mijn droomreis is:',
+    'Mijn favoriete film aller tijden:',
+  ]},
+  { name: 'Dromen & Wat als', questions: [
+    'Als ik één dag iemand anders kon zijn, was ik:',
     'Mijn meest onrealistische droom:',
     'Mijn levensmotto is:',
+    'Als ik een superkracht mocht kiezen:',
+    'Op mijn bucketlist staat nog:',
+    'Als ik een eigen zaak had, verkocht ik:',
   ]},
 ];
 const PARTY_QS = PARTY_QUESTION_CATEGORIES.flatMap(c => c.questions);
 // Hoeveel vragen uit de bank één speler tijdens het dossier te zien krijgt.
-const PLAYER_PARTY_QUESTION_COUNT = 12;
+const PLAYER_PARTY_QUESTION_COUNT = 10;
 // Minimum aantal spelers om te kunnen spelen — geen maximum, maar vanaf
 // meer dan ROUND_ITEM_CAP spelers tonen Ronde 1 t/m 5 maar een subset
 // (anders duurt een ronde met bv. 20 spelers veel te lang).
@@ -133,6 +151,8 @@ let pendingPhotoDataUrl = null;
 
 const Session = {
   code: null, playerId: null, isHost: false, unsub: null, dossierAnswers: {}, gameName: null,
+  // Geheime host-sleutel (enkel op het toestel van de host) — zie host-herstel.
+  hostKey: null,
   // Foto en stem-opname zijn eigen stappen in het dossier-overzicht,
   // elk met hun eigen "klaar" (bevestigd of bewust overgeslagen) —
   // zie goDossierPhotoStep()/goDossierVoiceStep() hieronder.
@@ -196,8 +216,8 @@ function go(screenId) {
   document.getElementById(screenId).classList.add('active');
   window.scrollTo(0, 0);
   const leaveBtn = document.getElementById('leave-game-btn');
-  if (leaveBtn) leaveBtn.style.display = (screenId === 's-home' || screenId === 's-tv') ? 'none' : 'flex';
-  document.body.classList.toggle('in-game', !['s-home', 's-create', 's-join', 's-resume', 's-tv'].includes(screenId));
+  if (leaveBtn) leaveBtn.style.display = (screenId === 's-home' || screenId === 's-tv' || screenId === 's-tv-join') ? 'none' : 'flex';
+  document.body.classList.toggle('in-game', !['s-home', 's-create', 's-join', 's-resume', 's-tv', 's-tv-join'].includes(screenId));
 }
 
 // Ontsnappingsluik voor als er ergens iets vastloopt — zonder dit moest
@@ -297,6 +317,7 @@ function restoreSavedSession(saved) {
   Session.playerId = saved.playerId;
   Session.isHost = !!saved.isHost;
   Session.gameName = saved.gameName;
+  Session.hostKey = saved.hostKey || null;
   saveLocalSession(saved.name, saved.gameName); // herschrijft onder de genormaliseerde sleutel
   subscribeLobby();
   let draft = null;
@@ -326,6 +347,7 @@ function saveLocalSession(name, gameName) {
   try {
     localStorage.setItem(sessionStorageKey(gameName, Session.code), JSON.stringify({
       name, code: Session.code, gameName, playerId: Session.playerId, isHost: Session.isHost,
+      hostKey: Session.hostKey || null,
     }));
     localStorage.setItem(LAST_SESSION_POINTER_KEY, JSON.stringify({ gameName, code: Session.code }));
   } catch (e) { /* localStorage niet beschikbaar (bv. privénavigatie) — negeren */ }
@@ -393,6 +415,12 @@ function startFreshSession() {
 // Alles wat spelers zelf typen (namen, antwoorden, bekentenissen, drankjes,
 // nummertitels) moet ontsnapt worden voor het via innerHTML in beeld komt —
 // anders breekt een '<' of '&' de weergave, of kan iemand code binnensmokkelen.
+// Zonder ?. / ?? zodat ook oudere (tv-)browsers het script kunnen lezen.
+function safeClipboardWrite(text) {
+  try { if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text); } catch (e) { /* negeren */ }
+  return Promise.resolve();
+}
+
 function esc(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -400,7 +428,83 @@ function esc(v) {
 // fileToResizedDataUrl ze ook aan) — al de rest wordt genegeerd.
 function safeImg(url) { return (typeof url === 'string' && /^data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]+$/.test(url)) ? url : ''; }
 
-function shuffle(arr) { return [...arr].sort(() => Math.random() - 0.5); }
+// Eerlijke Fisher-Yates i.p.v. sort(random) (die is scheef verdeeld).
+function shuffle(arr, rng = Math.random) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+// Voorspelbare "willekeur": elk toestel met dezelfde seed krijgt exact
+// dezelfde volgorde — zo ziet iedereen dezelfde antwoordknoppen.
+function seededRng(seedStr) {
+  let h = 1779033703 ^ seedStr.length;
+  for (let i = 0; i < seedStr.length; i++) { h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+  let a = h >>> 0;
+  return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function optionSeed(key) { return `${Session.code || 'demo'}|${(latestLobby && latestLobby.gameNumber) || 1}|${key}`; }
+
+// Wegstreep-effect vermijden: kwam iedereen precies één keer aan bod, dan
+// wist de groep bij het laatste item al wie het moest zijn. Daarom laten
+// we (vanaf 3 items) altijd minstens één willekeurige speler weg.
+function pickRoundItems(items, cap) {
+  const shuffled = shuffle(items);
+  let n = Math.min(cap, shuffled.length);
+  if (n === shuffled.length && n >= 3) n -= 1;
+  return shuffled.slice(0, n);
+}
+
+// ── Eigen keuze tonen / verbergen ──
+// Staat het scherm van een speler (meestal de host) op een tv of beamer,
+// dan zag iedereen welk antwoord die aantikte. Met "verberg mijn keuzes"
+// (per toestel onthouden) blijft dat verborgen.
+let hidePicksPref = (() => { try { return localStorage.getItem('unmasked:hidePicks') === '1'; } catch (e) { return false; } })();
+function hideMyPicks() { return hidePicksPref; }
+function setHidePicks(on) {
+  hidePicksPref = !!on;
+  try { localStorage.setItem('unmasked:hidePicks', hidePicksPref ? '1' : '0'); } catch (e) { /* negeren */ }
+  document.querySelectorAll('.hide-picks-toggle').forEach(el => { el.checked = hidePicksPref; });
+  if (latestLobby) renderAllScreens(latestLobby);
+}
+function decorateOption(el, { isCorrect, isMine, revealed }) {
+  const hide = hideMyPicks();
+  if (revealed) {
+    if (isCorrect) el.classList.add('correct');
+    else if (isMine && !hide) el.classList.add('wrong');
+  } else if (isMine && !hide) {
+    el.classList.add('pending');
+  }
+}
+// Kleine statusregel onder de antwoordknoppen: wisselen kan tot de tijd om
+// is, en na de onthulling ziet elke speler zijn EIGEN resultaat.
+function setPickStatus(containerId, { myGuess, revealed, isCorrectGuess, isOwnItem, changeable = true }) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let el = document.getElementById(containerId + '-status');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = containerId + '-status';
+    el.className = 'pick-status';
+    container.insertAdjacentElement('afterend', el);
+  }
+  let txt = ''; let cls = '';
+  if (!revealed) {
+    if (myGuess) txt = hideMyPicks() ? '✓ Antwoord doorgegeven (verborgen)' : (changeable ? '✓ Gekozen — je kan nog wisselen tot de tijd om is' : '✓ Gekozen');
+  } else if (hideMyPicks()) {
+    txt = '';
+  } else if (isOwnItem) {
+    txt = 'Dit was jouw eigen antwoord — geen punten.'; cls = 'muted';
+  } else if (!myGuess) {
+    txt = 'Je gokte niet op tijd.'; cls = 'muted';
+  } else if (isCorrectGuess) {
+    txt = '✓ Juist geraden!'; cls = 'ok';
+  } else {
+    txt = '✗ Fout geraden'; cls = 'bad';
+  }
+  el.textContent = txt;
+  el.className = 'pick-status ' + cls;
+  el.style.display = txt ? 'block' : 'none';
+}
 function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 
 // Merkbare feedback op het moment dat de tijd om is — een korte rode
@@ -467,11 +571,16 @@ function pickFairMix(items, count, getKey) {
 // zien) en heeft geen invloed op wie er score krijgt.
 const MAX_ANSWER_OPTIONS = 8;
 
-function pickAnswerOptions(allCandidates, correctValue, getValue) {
+// Seed per vraag (bv. 'qf3'): ieder toestel berekent zo exact dezelfde
+// subset in dezelfde volgorde — vroeger koos elk toestel zijn eigen
+// willekeurige afleiders, waardoor spelers "andere antwoorden" zagen.
+function pickAnswerOptions(allCandidates, correctValue, getValue, seedKey) {
   if (allCandidates.length <= MAX_ANSWER_OPTIONS) return allCandidates;
-  const correct = allCandidates.find(c => getValue(c) === correctValue);
-  const others = shuffle(allCandidates.filter(c => getValue(c) !== correctValue)).slice(0, MAX_ANSWER_OPTIONS - 1);
-  return shuffle(correct ? [correct, ...others] : others);
+  const rng = seededRng(optionSeed(seedKey || String(correctValue)));
+  const sorted = [...allCandidates].sort((a, b) => String(getValue(a)).localeCompare(String(getValue(b))));
+  const correct = sorted.find(c => getValue(c) === correctValue);
+  const others = shuffle(sorted.filter(c => getValue(c) !== correctValue), rng).slice(0, MAX_ANSWER_OPTIONS - 1);
+  return shuffle(correct ? [correct, ...others] : others, rng);
 }
 
 function pickSessionQuestions() {
@@ -511,8 +620,23 @@ function pickSessionQuestions() {
   // Na "Nog een potje": eerst vragen die nog niet gesteld werden.
   const used = new Set((latestLobby && latestLobby.usedQuestionKeys) || []);
   const isUsed = (r) => used.has(r.label + '|' + r.correctPlayer);
-  const questions = pickFairMix(resolved.filter(r => !isUsed(r)), itemCap(), (item) => item.correctPlayer);
-  if (questions.length < itemCap()) questions.push(...pickFairMix(resolved.filter(isUsed), itemCap() - questions.length, (item) => item.correctPlayer));
+  // Geen strikte beurtrol meer (dan kwam iedereen even vaak aan bod en kon
+  // je op het einde wegstrepen) — wel een plafond per speler, zodat
+  // niemand de hele ronde domineert.
+  const nPlayers = Math.max(1, new Set(resolved.map(r => r.correctPlayer)).size);
+  const maxPer = Math.ceil(itemCap() / nPlayers) + 1;
+  const counts = {};
+  const questions = [];
+  const take = (list) => {
+    for (const r of shuffle(list)) {
+      if (questions.length >= itemCap()) break;
+      if ((counts[r.correctPlayer] || 0) >= maxPer) continue;
+      counts[r.correctPlayer] = (counts[r.correctPlayer] || 0) + 1;
+      questions.push(r);
+    }
+  };
+  take(resolved.filter(r => !isUsed(r)));
+  if (questions.length < itemCap()) take(resolved.filter(isUsed));
   return { questions: shuffle(questions), usePlayers };
 }
 
@@ -653,6 +777,8 @@ function subscribeLobby() {
       Session.isHost = amHost;
       persistHostFlag();
     }
+    ensureHostKey(lobby);
+    keepLobbyAlive(lobby);
     hydrateGuesses(lobby);
     if (handleGameNumberChange(lobby)) return;
     latestLobby = lobby;
@@ -660,6 +786,145 @@ function subscribeLobby() {
     syncToLobbyPhase(lobby);
     renderAllScreens(lobby);
   });
+}
+
+// ── Vangnet: scherm loopt achter ──
+// Op de testavond kreeg iemand de vragen niet op zijn scherm. Typische
+// oorzaak: de telefoon ging even op slot of naar de achtergrond, de
+// verbinding met Firestore viel stil en er kwam geen nieuwe update meer
+// binnen. Daarom (1) controleren we elke paar seconden of het getoonde
+// scherm nog bij de fase van het spel past, en (2) bouwen we de
+// verbinding opnieuw op zodra de telefoon terug actief wordt na een stilte.
+setInterval(() => {
+  if (tvMode || !Session.code || !latestLobby) return;
+  syncToLobbyPhase(latestLobby);
+  renderAllScreens(latestLobby);
+}, 3000);
+function resubscribeIfStale(force) {
+  if (tvMode || !Session.code || !Session.playerId) return;
+  if (force || Date.now() - lastSnapshotAt > 12000) subscribeLobby();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') resubscribeIfStale(false); });
+window.addEventListener('online', () => resubscribeIfStale(true));
+window.addEventListener('pageshow', (e) => { if (e.persisted) resubscribeIfStale(true); });
+
+// ── Host-herstel ──
+// De host bewaart een geheime sleutel; de lobby kent enkel de hash. Met de
+// herstellink neemt de host op eender welk toestel zijn plek terug.
+// Zorgt dat de host op dit toestel een geldige sleutel heeft:
+//  - lobby zonder sleutel (oudere lobby)        → nieuwe sleutel vastleggen;
+//  - sleutel van mij, maar niet op dit toestel → nieuwe sleutel (de oude
+//    link vervalt, de nieuwe staat in de lobby);
+//  - sleutel van iemand anders (host overgenomen) → niets doen, zodat de
+//    oorspronkelijke host via zijn link zijn rol kan terugnemen.
+let ensuringHostKey = false;
+async function ensureHostKey(lobby) {
+  if (ensuringHostKey || !Session.code || lobby.hostId !== Session.playerId) return;
+  const hk = lobby.hostKey;
+  if (hk && hk.hash && hk.playerId !== Session.playerId) return;
+  ensuringHostKey = true;
+  try {
+    if (hk && hk.hash && Session.hostKey && (await hashHostKey(Session.hostKey)) === hk.hash) return;
+    const key = makeHostKey();
+    const hash = await hashHostKey(key);
+    await withRetry(() => GameOps.setHostKey(Session.code, Session.playerId, hash));
+    Session.hostKey = key;
+    persistHostKey();
+  } catch (e) {
+    /* volgende snapshot probeert opnieuw */
+  } finally {
+    ensuringHostKey = false;
+  }
+}
+
+// ── Lobby in leven houden ──
+// Lobby, foto's en stemopnames krijgen een vervaldatum (automatisch wissen).
+// Zolang iemand de lobby open heeft, schuift die mee op — anders zou een
+// dossier dat een paar dagen vóór het feest werd ingevuld, al gewist zijn.
+// Eén keer per uur per toestel, en enkel als de vervaldatum binnen 6 dagen valt.
+let lastKeepAliveAt = 0;
+let keepAliveBusy = false;
+async function keepLobbyAlive(lobby) {
+  if (keepAliveBusy || !Session.code || !Backend.extendExpiry) return;
+  if (Date.now() - lastKeepAliveAt < 60 * 60 * 1000) return;
+  if (expiryMs(lobby.expiresAt) > Date.now() + 6 * 24 * 60 * 60 * 1000) { lastKeepAliveAt = Date.now(); return; }
+  keepAliveBusy = true;
+  try {
+    await Backend.extendExpiry(Session.code, lobby.players.map(p => p.id));
+    lastKeepAliveAt = Date.now();
+  } catch (e) {
+    /* volgende snapshot probeert opnieuw */
+  } finally {
+    keepAliveBusy = false;
+  }
+}
+
+function persistHostKey() {
+  try {
+    const key = sessionStorageKey(Session.gameName, Session.code);
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (saved) { saved.hostKey = Session.hostKey || null; localStorage.setItem(key, JSON.stringify(saved)); }
+  } catch (e) { /* negeren */ }
+}
+
+function hostRecoveryUrl() {
+  if (!Session.code || !Session.hostKey) return null;
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('host', Session.code);
+  url.searchParams.set('key', Session.hostKey);
+  return url.toString();
+}
+
+function renderHostRecovery() {
+  const box = document.getElementById('host-recovery-box');
+  if (!box) return;
+  const ok = !!(Session.isHost && Session.hostKey && latestLobby && latestLobby.hostKey
+    && latestLobby.hostKey.playerId === Session.playerId);
+  box.style.display = ok ? 'block' : 'none';
+}
+
+function copyHostRecoveryLink() {
+  const url = hostRecoveryUrl();
+  if (!url) return;
+  safeClipboardWrite(url).catch(() => {});
+  const btn = document.getElementById('host-recovery-copy-btn');
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = 'Herstellink gekopieerd ✓';
+    setTimeout(() => { btn.textContent = original; }, 2000);
+  }
+}
+
+function sendHostRecoveryToSelf() {
+  const url = hostRecoveryUrl();
+  if (!url) return;
+  const label = Session.gameName ? ` (${Session.gameName}, ${Session.code})` : ` (${Session.code})`;
+  const text = encodeURIComponent(`🔑 Mijn Unmasked host-herstellink${label} — niet delen: ${url}`);
+  window.open(`https://wa.me/?text=${text}`, '_blank');
+}
+
+// Opent de app met ?host=CODE&key=SLEUTEL → sleutel controleren tegen de
+// lobby en de host-identiteit op dit toestel terugzetten.
+async function recoverHostFromLink(code, key) {
+  go('s-join');
+  const errEl = document.getElementById('join-error');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+  const codeInput = document.getElementById('join-code');
+  if (codeInput) codeInput.value = code;
+  let lobby = null;
+  try { lobby = await Backend.getLobby(code); } catch (e) { lobby = null; }
+  if (!lobby) { showErr('Lobby niet gevonden — misschien is het spel al verlopen.'); return; }
+  const hk = lobby.hostKey;
+  let hash = null;
+  try { hash = await hashHostKey(key); } catch (e) { hash = null; }
+  if (!hk || !hk.hash || hk.hash !== hash) { showErr('Deze host-herstellink klopt niet (meer) voor deze lobby.'); return; }
+  const me = lobby.players.find(p => p.id === hk.playerId);
+  if (!me) { showErr('Je host-plek staat niet meer in deze lobby.'); return; }
+  if (lobby.hostId !== me.id) {
+    try { await withRetry(() => GameOps.reclaimHost(code, me.id)); } catch (e) { showErr('Host-rol terugnemen lukte niet — controleer je verbinding en probeer opnieuw.'); return; }
+  }
+  restoreSavedSession({ name: me.name, code, gameName: lobby.gameName, playerId: me.id, isHost: true, hostKey: key });
 }
 
 function persistHostFlag() {
@@ -697,7 +962,7 @@ function removeBtnHtml(p) {
 // spel al 90 seconden niets meer gebeurd is (geen enkele update van de
 // lobby) — dan is de host waarschijnlijk weg (telefoon leeg, app dicht).
 const HOST_IDLE_TAKEOVER_MS = 90 * 1000;
-const NO_TAKEOVER_SCREENS = ['s-tv', 's-home', 's-create', 's-join', 's-resume', 's-lobby', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting', 's-round5-final', 's-history'];
+const NO_TAKEOVER_SCREENS = ['s-tv', 's-tv-join', 's-home', 's-create', 's-join', 's-resume', 's-lobby', 's-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice', 's-waiting', 's-round5-final', 's-history'];
 
 function updateTakeoverButton() {
   const btn = document.getElementById('takeover-btn');
@@ -800,8 +1065,9 @@ async function createLobbyClick() {
   const btn = document.getElementById('create-lobby-btn');
   if (btn) btn.disabled = true;
   try {
-    const { code, playerId } = await Backend.createLobby(name, DEFAULT_MAX_PLAYERS, gameName);
-    Session.code = code; Session.playerId = playerId; Session.isHost = true;
+    const hostKey = makeHostKey();
+    const { code, playerId } = await Backend.createLobby(name, DEFAULT_MAX_PLAYERS, gameName, await hashHostKey(hostKey));
+    Session.code = code; Session.playerId = playerId; Session.isHost = true; Session.hostKey = hostKey;
     saveLocalSession(name, gameName);
     subscribeLobby();
     go('s-lobby');
@@ -844,7 +1110,19 @@ async function joinLobbyClick() {
     go('s-dossier');
     renderDossierOverview();
   } catch (e) {
-    errEl.textContent = e.message; errEl.style.display = 'block';
+    let msg = e.message;
+    // Naam bezet door de host zelf? Dan is dit vrijwel zeker de host op een
+    // ander toestel — wijs naar de herstellink in plaats van "kies een andere naam".
+    if (msg === NAME_TAKEN_MSG) {
+      try {
+        const lobby = await Backend.getLobby(code);
+        const host = lobby && lobby.players.find(p => p.id === lobby.hostId);
+        if (host && host.name.trim().toLowerCase() === name.toLowerCase()) {
+          msg = 'Ben jij de host? Open dan je 🔑 host-herstellink om je plek terug te nemen. Die vind je in de lobby op het toestel waarmee je het spel aanmaakte.';
+        }
+      } catch (e2) { /* gewone foutmelding houden */ }
+    }
+    errEl.textContent = msg; errEl.style.display = 'block';
   } finally {
     joinLobbyInFlight = false;
     if (btn) btn.disabled = false;
@@ -872,7 +1150,7 @@ function buildPlainGameUrl() {
 function copyInviteCode() {
   if (!Session.code || !Session.gameName) return;
   const message = `👀 Hoeveel weet jij écht over de mensen om je heen?\n\n${Session.gameName} — kom het ontdekken.\n👉 ${buildPlainGameUrl()}\n\nCode: ${Session.code}`;
-  navigator.clipboard?.writeText(message).catch(() => {});
+  safeClipboardWrite(message).catch(() => {});
   const btn = document.getElementById('copy-invite-btn');
   if (btn) {
     const original = btn.textContent;
@@ -904,6 +1182,10 @@ function renderLobbyScreen(lobby) {
   if (gameNameEl) gameNameEl.textContent = lobby.gameName || '—';
   document.getElementById('lobby-player-count').textContent = `Spelers (${lobby.players.length})`;
   document.getElementById('lobby-tv-btn').style.display = Session.isHost ? 'block' : 'none';
+  renderHostRecovery();
+  const dossierBtn = document.getElementById('lobby-dossier-btn');
+  const me = lobby.players.find(p => p.id === Session.playerId);
+  if (dossierBtn) dossierBtn.textContent = (me && me.dossierDone) ? '✓ Dossier ingediend — bekijken of aanpassen' : 'Mijn dossier invullen →';
   document.getElementById('lobby-player-list').innerHTML = lobby.players.map(p => `
     <div class="player-row">
       <div class="avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div>
@@ -995,6 +1277,11 @@ function renderSettingsCard(lobby) {
   const show = Session.isHost && lobby.phase === 'lobby';
   card.style.display = show ? 'block' : 'none';
   document.getElementById('tv-card').style.display = Session.isHost ? 'block' : 'none';
+  const tvUrlEl = document.getElementById('tv-plain-url');
+  if (tvUrlEl) tvUrlEl.textContent = buildPlainGameUrl().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const tvCodeEl = document.getElementById('tv-plain-code');
+  if (tvCodeEl) tvCodeEl.textContent = Session.code || '';
+  document.querySelectorAll('.hide-picks-toggle').forEach(el => { el.checked = hideMyPicks(); });
   if (!show) return;
   const st = getSettings(lobby);
   document.querySelectorAll('#settings-length .seg-btn').forEach(b => b.classList.toggle('selected', b.dataset.len === st.length));
@@ -1089,6 +1376,14 @@ function goDossier() {
     Session.photoStepDone = !!draft.photoStepDone;
     Session.voiceStepDone = !!draft.voiceStepDone;
   } else {
+    // Geen lokale voortgang, maar al ingediend (de lokale draft wordt na
+    // indienen gewist, of je zit op een ander toestel)? Dan het ingediende
+    // dossier terug openen i.p.v. een leeg dossier met nieuwe vragen.
+    const me = latestLobby && latestLobby.players.find(p => p.id === Session.playerId);
+    if (me && (me.dossierDone || Object.keys(me.dossierAnswers || {}).length)) {
+      reopenDossierForEditing();
+      return;
+    }
     resetDossierState();
   }
   dossierExpandedRow = null;
@@ -1107,23 +1402,55 @@ function resetPhotoState() {
   const img = document.getElementById('photo-preview');
   if (img) { img.src = ''; img.style.display = 'none'; }
   const icon = document.getElementById('photo-picker-icon');
-  if (icon) icon.style.display = 'block';
+  if (icon) { icon.style.display = 'block'; icon.textContent = '📷'; }
+  showPhotoError('');
 }
 
-function fileToResizedDataUrl(file, maxSize = 280, quality = 0.6) {
+const PHOTO_MAX_FILE_MB = 30;
+// Firestore laat ~400 kB per foto toe (zie firestore.rules) — we mikken
+// ruim daaronder. Groter dan vroeger (280px) zodat inzoomen op het
+// gezicht niet meteen een pixelbrij wordt.
+const PHOTO_MAX_DATAURL_CHARS = 330000;
+
+function photoErrorMessage(kind) {
+  if (kind === 'size') return `Deze foto is te zwaar (max. ${PHOTO_MAX_FILE_MB} MB). Kies een kleinere foto of maak een screenshot ervan.`;
+  if (kind === 'type') return 'Dit bestand is geen foto. Kies een JPG, PNG of WEBP.';
+  if (kind === 'decode') return 'Dit fotoformaat kan je browser niet openen (bv. HEIC van een iPhone). Kies een JPG/PNG, of maak een screenshot van de foto en kies die.';
+  return 'Er ging iets mis met deze foto. Probeer een andere.';
+}
+
+function showPhotoError(msg) {
+  const el = document.getElementById('photo-error');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function fileToResizedDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('decode'));
     reader.onload = (e) => {
       const img = new Image();
-      img.onerror = reject;
+      const timer = setTimeout(() => reject(new Error('decode')), 15000);
+      img.onerror = () => { clearTimeout(timer); reject(new Error('decode')); };
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        clearTimeout(timer);
+        if (!img.width || !img.height) { reject(new Error('decode')); return; }
+        // Steeds kleiner/lichter tot het past.
+        const attempts = [[720, 0.78], [600, 0.72], [480, 0.68], [360, 0.62], [280, 0.55]];
+        for (const [maxSize, quality] of attempts) {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const url = canvas.toDataURL('image/jpeg', quality);
+          if (url.length <= PHOTO_MAX_DATAURL_CHARS && url.startsWith('data:image/')) { resolve(url); return; }
+        }
+        reject(new Error('size'));
       };
       img.src = e.target.result;
     };
@@ -1134,17 +1461,28 @@ function fileToResizedDataUrl(file, maxSize = 280, quality = 0.6) {
 async function handlePhotoSelected(ev) {
   const file = ev.target.files[0];
   if (!file) return;
-  const dataUrl = await fileToResizedDataUrl(file);
+  showPhotoError('');
+  if (file.type && !file.type.startsWith('image/')) { showPhotoError(photoErrorMessage('type')); ev.target.value = ''; return; }
+  if (file.size > PHOTO_MAX_FILE_MB * 1024 * 1024) { showPhotoError(photoErrorMessage('size')); ev.target.value = ''; return; }
+  const icon = document.getElementById('photo-picker-icon');
+  if (icon) icon.textContent = '⏳';
+  let dataUrl;
+  try {
+    dataUrl = await fileToResizedDataUrl(file);
+  } catch (e) {
+    pendingPhotoDataUrl = null;
+    if (icon) icon.textContent = '📷';
+    showPhotoError(photoErrorMessage(e && e.message));
+    ev.target.value = '';
+    return;
+  }
+  if (icon) { icon.textContent = '📷'; icon.style.display = 'none'; }
   pendingPhotoDataUrl = dataUrl;
   const img = document.getElementById('photo-preview');
   img.src = dataUrl;
   img.style.display = 'block';
-  document.getElementById('photo-picker-icon').style.display = 'none';
 }
 
-// Het masker is optioneel en gewoon voor de lol — de foto zelf hoort al
-// onherkenbaar te zijn (bv. als kind, verkleed, ...). Wie toch een
-// duidelijkere foto koos, kan er hierna nog een masker overheen zetten.
 // Markeert de foto- of stem-stap als afgehandeld (bevestigd of bewust
 // overgeslagen) en keert terug naar het dossier-overzicht — dat scherm
 // toont dan de bijgewerkte status en of "Dossier indienen" al actief mag
@@ -1163,71 +1501,95 @@ function markVoiceStepDone() {
   renderDossierOverview();
 }
 
-function goDossierPhotoStep() { go('s-dossier-photo'); }
+function goDossierPhotoStep() { showPhotoError(''); go('s-dossier-photo'); }
 function goDossierVoiceStep() { go('s-dossier-voice'); }
 
 function confirmPhotoAndContinue() {
-  if (!pendingPhotoDataUrl) { markPhotoStepDone(); return; }
+  if (!pendingPhotoDataUrl) {
+    // Geen foto gekozen: niet stilletjes "klaar" zetten, maar het zeggen.
+    showPhotoError('Kies eerst een foto — of tik op "Sla over" als je niet wil meedoen in Ronde 2.');
+    return;
+  }
   openMaskEditor();
 }
 
-function skipPhotoAndContinue() { pendingPhotoDataUrl = null; markPhotoStepDone(); }
+function skipPhotoAndContinue() { pendingPhotoDataUrl = null; showPhotoError(''); markPhotoStepDone(); }
 
-// ── Masker plaatsen (optioneel, Ronde 2) ──
-
-let maskPos = { x: 50, y: 40, size: 34 };
-let maskDragging = false;
+// ── Gezicht aanduiden (zoompunt voor Ronde 2) ──
+// Vervangt het vroegere masker (feedback: masker weglaten). De speler tikt
+// op het gezicht; dat punt (in % van de foto) wordt het middelpunt van de
+// zoom in Ronde 2.
+let photoFocus = { x: 50, y: 40 };
 
 function openMaskEditor() {
-  maskPos = { x: 50, y: 40, size: 34 };
-  document.getElementById('mask-editor-photo').src = pendingPhotoDataUrl;
-  document.getElementById('mask-size-slider').value = maskPos.size;
-  applyMaskPos();
-  initMaskDrag();
+  photoFocus = { x: 50, y: 40 };
+  const img = document.getElementById('mask-editor-photo');
+  img.src = pendingPhotoDataUrl;
+  const err = document.getElementById('photo-upload-error');
+  if (err) err.style.display = 'none';
+  applyFocusMarker();
+  initFocusPicker();
   go('s-photo-mask');
 }
 
-function applyMaskPos() {
-  const el = document.getElementById('mask-overlay');
-  el.style.left = maskPos.x + '%';
-  el.style.top = maskPos.y + '%';
-  el.style.width = maskPos.size + '%';
+function applyFocusMarker() {
+  const el = document.getElementById('focus-marker');
+  if (!el) return;
+  el.style.left = photoFocus.x + '%';
+  el.style.top = photoFocus.y + '%';
 }
 
-function updateMaskSize(val) { maskPos.size = parseInt(val, 10); applyMaskPos(); }
-
-function maskPointerMove(ev) {
-  if (!maskDragging) return;
-  const rect = document.getElementById('mask-editor').getBoundingClientRect();
-  maskPos.x = Math.min(100, Math.max(0, ((ev.clientX - rect.left) / rect.width) * 100));
-  maskPos.y = Math.min(100, Math.max(0, ((ev.clientY - rect.top) / rect.height) * 100));
-  applyMaskPos();
+function focusFromPointer(ev) {
+  const rect = document.getElementById('mask-editor-photo').getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  photoFocus.x = Math.round(Math.min(100, Math.max(0, ((ev.clientX - rect.left) / rect.width) * 100)));
+  photoFocus.y = Math.round(Math.min(100, Math.max(0, ((ev.clientY - rect.top) / rect.height) * 100)));
+  applyFocusMarker();
 }
 
-function initMaskDrag() {
-  const overlay = document.getElementById('mask-overlay');
-  overlay.onpointerdown = (ev) => { maskDragging = true; overlay.setPointerCapture(ev.pointerId); };
-  overlay.onpointermove = maskPointerMove;
-  overlay.onpointerup = () => { maskDragging = false; };
-  overlay.onpointercancel = () => { maskDragging = false; };
+function initFocusPicker() {
+  const editor = document.getElementById('mask-editor');
+  let dragging = false;
+  editor.onpointerdown = (ev) => { dragging = true; try { editor.setPointerCapture(ev.pointerId); } catch (e) { /* negeren */ } focusFromPointer(ev); };
+  editor.onpointermove = (ev) => { if (dragging) focusFromPointer(ev); };
+  editor.onpointerup = () => { dragging = false; };
+  editor.onpointercancel = () => { dragging = false; };
 }
 
+let photoUploadInFlight = false;
 async function confirmMaskAndContinue() {
-  if (Session.code && Session.playerId) {
+  if (photoUploadInFlight) return;
+  const btn = document.getElementById('focus-confirm-btn');
+  const err = document.getElementById('photo-upload-error');
+  if (Session.code && Session.playerId && pendingPhotoDataUrl) {
+    photoUploadInFlight = true;
+    if (btn) { btn.disabled = true; btn.textContent = 'Foto versturen...'; }
     try {
       await withRetry(() => GameOps.submitPhoto(Session.code, Session.playerId, {
-        url: pendingPhotoDataUrl, maskX: maskPos.x, maskY: maskPos.y, maskScale: maskPos.size,
+        url: pendingPhotoDataUrl, focusX: photoFocus.x, focusY: photoFocus.y,
       }));
-    } catch (e) { /* local demo mode, or a photo submit that never made it through — Round 2 falls back gracefully with fewer real photos */ }
+    } catch (e) {
+      // Vroeger werd een mislukte upload genegeerd en leek alles gelukt.
+      if (err) {
+        err.textContent = 'Je foto kon niet verstuurd worden (te zwaar of geen verbinding). Probeer opnieuw, of kies een andere foto.';
+        err.style.display = 'block';
+      }
+      return;
+    } finally {
+      photoUploadInFlight = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Foto opslaan →'; }
+    }
   }
   markPhotoStepDone();
 }
 
-async function skipMaskAndContinue() {
-  if (Session.code && Session.playerId) {
-    try { await withRetry(() => GameOps.submitPhoto(Session.code, Session.playerId, { url: pendingPhotoDataUrl })); } catch (e) { /* local demo mode, or a photo submit that never made it through */ }
-  }
-  markPhotoStepDone();
+// Zoomfactor van de fotoronde — gedeeld door telefoon en tv-scherm.
+function photoZoomScale(progress) { return (8 - 7 * Math.min(1, Math.max(0, progress))).toFixed(3); }
+// Zoompunt van een foto in Ronde 2 (oude lobby's zonder zoompunt: midden).
+function photoFocusOf(meta) {
+  const fx = meta && meta.focusX !== undefined ? Number(meta.focusX) : 50;
+  const fy = meta && meta.focusY !== undefined ? Number(meta.focusY) : 45;
+  return { x: isFinite(fx) ? fx : 50, y: isFinite(fy) ? fy : 45 };
 }
 
 function resetDossierState() {
@@ -1236,7 +1598,13 @@ function resetDossierState() {
   Session.voiceStepDone = false;
   // Elke speler krijgt een eigen willekeurige subset van de vragenbank,
   // plus altijd de bekentenis/liedje/drankje-vraag aan het eind.
-  sessionDossierQs = [...shuffle(PARTY_QS).slice(0, PLAYER_PARTY_QUESTION_COUNT), CONFESSION_Q, SONG_Q, DRINK_Q];
+  // Eerst één vraag uit elke categorie (zo krijgt niemand vijf vragen
+  // over hetzelfde onderwerp), daarna aangevuld met willekeurige andere.
+  const perCat = PARTY_QUESTION_CATEGORIES.map(c => shuffle(c.questions)[0]);
+  const rest = shuffle(PARTY_QS.filter(q => !perCat.includes(q)));
+  const picked = shuffle(perCat).slice(0, PLAYER_PARTY_QUESTION_COUNT);
+  picked.push(...rest.slice(0, Math.max(0, PLAYER_PARTY_QUESTION_COUNT - picked.length)));
+  sessionDossierQs = [...picked, CONFESSION_Q, SONG_Q, DRINK_Q];
 }
 
 // ── Dossier-overzicht (accordion-stijl) ───
@@ -1429,7 +1797,7 @@ async function reopenDossierForEditing() {
 // Zelfde patroon als Ronde 3: lobby.quickfire is de bron van waarheid,
 // de host beheert timing en kent scores toe zodat niemand dubbel telt.
 
-const QUICKFIRE_SECONDS = 10;
+const QUICKFIRE_SECONDS = 20;
 const NEXT_BTN_DELAY_MS = 1500;
 let qfCountdownTimer = null;
 let lastRenderedQFIndex = -1;
@@ -1486,7 +1854,7 @@ function renderQuickFire(lobby) {
     tickQFCountdown();
     // Eenmalig per vraag bepalen, anders zouden de knoppen door elkaar
     // schudden bij elke her-render (bv. bij elke gok van iemand anders).
-    qfOptionsCache = pickAnswerOptions(qf.usePlayers, q.correctPlayer, (p) => p.name);
+    qfOptionsCache = pickAnswerOptions(qf.usePlayers, q.correctPlayer, (p) => p.name, 'qf' + qf.index);
   }
 
   const myGuess = (qf.answers || {})[Session.playerId];
@@ -1495,21 +1863,19 @@ function renderQuickFire(lobby) {
   qfOptionsCache.forEach(p => {
     const d = document.createElement('div');
     d.className = 'answer-card';
-    if (qf.revealed) {
-      if (p.name === q.correctPlayer) d.classList.add('correct');
-      else if (myGuess && myGuess.guess === p.name) d.classList.add('wrong');
-    } else if (myGuess && myGuess.guess === p.name) {
-      d.classList.add('pending');
-    }
+    decorateOption(d, { isCorrect: p.name === q.correctPlayer, isMine: !!myGuess && myGuess.guess === p.name, revealed: qf.revealed });
     d.innerHTML = `<div class="answer-text">${esc(p.name)}</div>`;
     // Iedereen mag altijd gokken, ook op je eigen antwoord — anders is
     // meteen duidelijk voor de rest van de kamer wie het juiste antwoord
     // is (die persoon zou dan als enige niets kunnen aanklikken). Geen
     // punten krijgen op je eigen antwoord wordt afgedwongen in de
     // backend-scoring, niet door hier de knop te blokkeren.
-    if (!myGuess && !qf.revealed) d.onclick = () => submitQFGuess(p.name);
+    // Wisselen mag tot de tijd om is (de laatste keuze telt).
+    if (!qf.revealed && !(myGuess && myGuess.guess === p.name)) d.onclick = () => submitQFGuess(p.name);
     wrap.appendChild(d);
   });
+  const meQF = lobby.players && lobby.players.find(pl => pl.id === Session.playerId);
+  setPickStatus('r1-answers', { myGuess, revealed: qf.revealed, isCorrectGuess: !!myGuess && myGuess.guess === q.correctPlayer, isOwnItem: !!meQF && meQF.name === q.correctPlayer });
 
   const revealBox = document.getElementById('r1-reveal');
   revealBox.style.display = qf.revealed ? 'block' : 'none';
@@ -1582,7 +1948,8 @@ function tickQFCountdown() {
 async function submitQFGuess(name) {
   if (!latestLobby || !latestLobby.quickfire) return;
   const qf = latestLobby.quickfire;
-  if ((qf.answers || {})[Session.playerId] || qf.revealed) return;
+  const prevQF = (qf.answers || {})[Session.playerId];
+  if (qf.revealed || (prevQF && prevQF.guess === name)) return;
   renderQuickFire(localGuess('qf_' + qf.index, name));
   try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name, qf.index)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
 }
@@ -1620,21 +1987,13 @@ async function hostNextQF() {
   }
 }
 
-function maskSvgHtml() {
-  return `<svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg">
-    <path d="M2 25 Q2 5 30 8 Q50 2 70 8 Q98 5 98 25 Q98 40 70 38 Q50 44 30 38 Q2 40 2 25Z" fill="#0b0a13" stroke="#ff3d6b" stroke-width="1.5"/>
-    <ellipse cx="28" cy="24" rx="11" ry="7" fill="#f4f2fb"/>
-    <ellipse cx="72" cy="24" rx="11" ry="7" fill="#f4f2fb"/>
-  </svg>`;
-}
-
 // ── Ronde 2: Unmasked (live, host-gestuurd) ──
 // Zelfde patroon als Ronde 1/3: lobby.photoRound is de bron van waarheid.
 // De zoom-animatie wordt lokaal getekend op basis van de gedeelde
 // questionStartAt-tijdstempel, zodat iedereen dezelfde foto op hetzelfde
 // tempo ziet uitzoomen, ongeacht wanneer elk toestel het snapshot ontving.
 
-const PHOTOROUND_SECONDS = 20;
+const PHOTOROUND_SECONDS = 30;
 let photoRoundTicker = null;
 let lastRenderedPhotoIndex = -1;
 let lastFlashedPhotoIndex = -1;
@@ -1668,7 +2027,7 @@ function pickRound2Photos() {
   if (Session.code || (lobbyPlayers.length >= 2 && withPhotos.length >= 2)) {
     return {
       usePlayers: lobbyPlayers.map(p => ({ name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
-      photos: shuffle(withPhotos).slice(0, itemCap()).map(p => ({ playerId: p.id, mask: p.photo, player: p.name })),
+      photos: pickRoundItems(withPhotos, itemCap()).map(p => ({ playerId: p.id, mask: p.photo, player: p.name })),
     };
   }
   return { usePlayers: PLAYERS, photos: shuffle(R2_PHOTOS) };
@@ -1719,13 +2078,16 @@ function renderPhotoRound(lobby) {
       photoEl.textContent = '';
       photoEl.style.backgroundImage = r2Url ? `url(${safeImg(r2Url)})` : 'none';
       photoEl.style.backgroundSize = 'cover';
-      photoEl.style.backgroundPosition = 'center';
-      const m = photo.mask;
-      photoEl.innerHTML = (m && m.maskX !== undefined)
-        ? `<div class="r2-mask" style="left:${Number(m.maskX) || 0}%;top:${Number(m.maskY) || 0}%;width:${Number(m.maskScale) || 34}%;">${maskSvgHtml()}</div>`
-        : '';
+      // Zoom start op het aangeduide gezicht: met background-position X% Y%
+      // valt dat punt van de foto precies op X% Y% van het kader, en daar
+      // zetten we ook het zoom-middelpunt.
+      const f = photoFocusOf(photo.mask);
+      photoEl.style.backgroundPosition = `${f.x}% ${f.y}%`;
+      photoEl.style.transformOrigin = `${f.x}% ${f.y}%`;
+      photoEl.innerHTML = '';
     } else {
       photoEl.style.backgroundImage = 'none';
+      photoEl.style.transformOrigin = 'center';
       photoEl.textContent = photo.emoji;
     }
     clearInterval(photoRoundTicker);
@@ -1733,7 +2095,7 @@ function renderPhotoRound(lobby) {
     tickPhotoRound();
     // Eenmalig per foto bepalen, anders schudden de knoppen door elkaar
     // bij elke her-render.
-    photoOptionsCache = pickAnswerOptions(pr.usePlayers, photo.player, (p) => p.name);
+    photoOptionsCache = pickAnswerOptions(pr.usePlayers, photo.player, (p) => p.name, 'pr' + pr.index);
   }
 
   const myGuess = (pr.answers || {})[Session.playerId];
@@ -1743,19 +2105,15 @@ function renderPhotoRound(lobby) {
   photoOptionsCache.forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
-    if (pr.revealed) {
-      if (p.name === photo.player) d.classList.add('correct');
-      else if (myGuess && myGuess.guess === p.name) d.classList.add('wrong');
-    } else if (myGuess && myGuess.guess === p.name) {
-      d.classList.add('pending');
-    }
+    decorateOption(d, { isCorrect: p.name === photo.player, isMine: !!myGuess && myGuess.guess === p.name, revealed: pr.revealed });
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
     // Iedereen mag altijd gokken, ook op je eigen foto — anders is meteen
     // duidelijk voor de rest van de kamer wie het is (geen punten op je
     // eigen foto wordt afgedwongen in de backend-scoring).
-    if (!myGuess && !pr.revealed) d.onclick = () => submitPhotoGuess(p.name);
+    if (!pr.revealed && !(myGuess && myGuess.guess === p.name)) d.onclick = () => submitPhotoGuess(p.name);
     wrap.appendChild(d);
   });
+  setPickStatus('r2-players', { myGuess, revealed: pr.revealed, isCorrectGuess: !!myGuess && myGuess.guess === photo.player, isOwnItem: !!me && me.name === photo.player });
 
   const nb = document.getElementById('r2-next-btn');
   if (pr.revealed) {
@@ -1803,13 +2161,20 @@ function renderPhotoRound(lobby) {
     const flash = document.getElementById('r2-pts-flash');
     const fb = document.getElementById('r2-feedback');
     if (correctVoters.length) {
+      // Vroeger stond hier "Juist geraden!" voor IEDEREEN zodra één speler
+      // het juist had — ook bij wie fout gokte. Nu toont elk toestel zijn
+      // eigen resultaat.
       const myEntry = me && correctVoters.find(v => v.name === me.name);
-      flash.style.color = 'var(--accent2)';
-      flash.textContent = myEntry ? `+${myEntry.pts} punten!` : 'Juist geraden!';
+      const isOwnPhoto = !!me && me.name === photo.player;
+      if (hideMyPicks()) { flash.style.color = 'var(--accent2)'; flash.textContent = ''; }
+      else if (myEntry) { flash.style.color = 'var(--accent2)'; flash.textContent = `+${myEntry.pts} punten!`; }
+      else if (isOwnPhoto) { flash.style.color = 'var(--text-muted)'; flash.textContent = 'Jouw eigen foto'; }
+      else { flash.style.color = '#e24b4a'; flash.textContent = myGuess ? 'Fout — 0 punten' : 'Niet gegokt — 0 punten'; }
       fb.innerHTML = `<span style="color:var(--green);">✓ ${correctVoters.map(v => `${esc(v.name)} (+${v.pts})`).join(', ')}</span>`;
     } else {
-      flash.style.color = '#e24b4a';
-      flash.textContent = '0 punten';
+      const isOwnPhoto0 = !!me && me.name === photo.player;
+      flash.style.color = isOwnPhoto0 ? 'var(--text-muted)' : '#e24b4a';
+      flash.textContent = hideMyPicks() ? '' : (isOwnPhoto0 ? 'Jouw eigen foto — niemand had je door!' : (myGuess ? 'Fout — 0 punten' : 'Niet gegokt — 0 punten'));
       fb.innerHTML = `<span style="color:#e24b4a;">⏱ Niemand raadde het — het was ${esc(photo.player)}</span>`;
     }
     const photoNextReady = !!photoNextBtnReady[pr.index];
@@ -1830,7 +2195,7 @@ function tickPhotoRound() {
   const photo = pr.photos[pr.index];
   const elapsed = (serverNow() - pr.questionStartAt) / 1000;
   const progress = Math.min(1, elapsed / PHOTOROUND_SECONDS);
-  document.getElementById('r2-photo').style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
+  document.getElementById('r2-photo').style.transform = `scale(${photoZoomScale(progress)})`;
   document.getElementById('r2-zoombar').style.width = (progress * 100) + '%';
   Sound.countdown('pr' + pr.index, PHOTOROUND_SECONDS * (1 - progress));
   // Iedereen krijgt de volle tijd om te antwoorden — de ronde onthult
@@ -1849,7 +2214,8 @@ function tickPhotoRound() {
 async function submitPhotoGuess(name) {
   if (!latestLobby || !latestLobby.photoRound) return;
   const pr = latestLobby.photoRound;
-  if ((pr.answers || {})[Session.playerId] || pr.revealed) return;
+  const prevPR = (pr.answers || {})[Session.playerId];
+  if (pr.revealed || (prevPR && prevPR.guess === name)) return;
   renderPhotoRound(localGuess('pr_' + pr.index, name));
   try { await withRetry(() => GameOps.submitPhotoGuess(Session.code, Session.playerId, name, pr.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
@@ -1900,7 +2266,7 @@ function buildScoreboard(containerId, myScoreFallback, animate = false) {
   const boardEl = document.getElementById(containerId);
   const html = all.map((s, i) => `
     <div class="score-row">
-      <div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] ?? (i + 1)}</div>
+      <div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] !== undefined ? ranks[i] : (i + 1)}</div>
       <div style="flex:1">
         <div class="score-name" style="${s.you ? 'color:var(--accent);font-weight:600;' : ''}">${esc(s.name)}</div>
         <div style="margin-top:5px;background:var(--card-border);border-radius:3px;height:5px;overflow:hidden;">
@@ -1982,7 +2348,7 @@ function renderHotOrNot(lobby) {
     d.className = 'fav-card';
     const own = id === Session.playerId;
     if (own) d.classList.add('own');
-    if (myVote === id) d.classList.add('pending');
+    if (myVote === id && !hideMyPicks()) d.classList.add('pending');
     if (showResults && maxVotes > 0 && tally[id] === maxVotes) d.classList.add('winner');
     const count = showResults ? ` · ${tally[id] || 0} 🗳` : '';
     const favUrl = photoUrlFor(p);
@@ -2024,7 +2390,7 @@ async function nextHotOrNot() {
 // door alle clients reactief gerenderd. De host is ook de enige die
 // scores toekent (tijdens de reveal) om dubbel tellen te vermijden.
 
-const VERHOOR_SECONDS = 20;
+const VERHOOR_SECONDS = 30;
 let verhoorCountdownTimer = null;
 let lastSpokenVerhoorIndex = -1;
 let lastFlashedVerhoorIndex = -1;
@@ -2048,7 +2414,7 @@ function pickRound3Confessions() {
   if (Session.code && real.length === 0) return null; // echte lobby zonder bekentenissen → ronde overslaan
   if (Session.code || real.length >= 2) {
     return {
-      list: shuffle(real).slice(0, itemCap()),
+      list: pickRoundItems(real, itemCap()),
       players: lobbyPlayers.map(p => ({ id: p.id, name: p.name, color: p.color, bg: p.bg, letter: p.letter })),
     };
   }
@@ -2101,7 +2467,7 @@ function renderVerhoor(lobby) {
     tickVerhoorCountdown();
     // Eenmalig per bekentenis bepalen, anders schudden de knoppen door
     // elkaar bij elke her-render.
-    verhoorOptionsCache = pickAnswerOptions(v.players, q.playerId, (p) => p.id);
+    verhoorOptionsCache = pickAnswerOptions(v.players, q.playerId, (p) => p.id, 'vh' + v.index);
   }
 
   const myGuess = (v.answers || {})[Session.playerId];
@@ -2110,19 +2476,15 @@ function renderVerhoor(lobby) {
   verhoorOptionsCache.forEach(p => {
     const d = document.createElement('div');
     d.className = 'player-btn';
-    if (v.revealed) {
-      if (p.id === q.playerId) d.classList.add('correct');
-      else if (myGuess && myGuess.guess === p.id) d.classList.add('wrong');
-    } else if (myGuess && myGuess.guess === p.id) {
-      d.classList.add('pending');
-    }
+    decorateOption(d, { isCorrect: p.id === q.playerId, isMine: !!myGuess && myGuess.guess === p.id, revealed: v.revealed });
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
     // Iedereen mag altijd gokken, ook op je eigen bekentenis — anders is
     // meteen duidelijk voor de rest van de kamer wie de dader is (geen
     // punten op je eigen bekentenis wordt afgedwongen in de backend).
-    if (!myGuess && !v.revealed) d.onclick = () => submitMyVerhoorGuess(p.id);
+    if (!v.revealed && !(myGuess && myGuess.guess === p.id)) d.onclick = () => submitMyVerhoorGuess(p.id);
     wrap.appendChild(d);
   });
+  setPickStatus('r3-answers', { myGuess, revealed: v.revealed, isCorrectGuess: !!myGuess && myGuess.guess === q.playerId, isOwnItem: q.playerId === Session.playerId });
 
   const revealBox = document.getElementById('r3-reveal');
   revealBox.style.display = v.revealed ? 'block' : 'none';
@@ -2187,7 +2549,8 @@ function tickVerhoorCountdown() {
 async function submitMyVerhoorGuess(targetId) {
   if (!latestLobby || !latestLobby.verhoor) return;
   const v = latestLobby.verhoor;
-  if ((v.answers || {})[Session.playerId] || v.revealed) return;
+  const prevVH = (v.answers || {})[Session.playerId];
+  if (v.revealed || (prevVH && prevVH.guess === targetId)) return;
   renderVerhoor(localGuess('vh_' + v.index, targetId));
   try { await withRetry(() => GameOps.submitVerhoorGuess(Session.code, Session.playerId, targetId, v.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
@@ -2273,7 +2636,7 @@ async function hostStartRound4() {
 // aan nummers die toch niet gebruikt worden.
 async function pickSoundtrack() {
   const lobbyPlayers = latestLobby ? latestLobby.players : [];
-  const withSongs = shuffle(lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim())).slice(0, itemCap());
+  const withSongs = pickRoundItems(lobbyPlayers.filter(p => p.dossierAnswers && p.dossierAnswers[SONG_Q] && p.dossierAnswers[SONG_Q].trim()), itemCap());
   if (withSongs.length === 0) return null;
   const canSearchYouTube = typeof youtubeConfigured === 'function' && youtubeConfigured();
   const list = [];
@@ -2317,13 +2680,21 @@ registerHistoryViewer('soundtrack', 'Vorig nummer', () => soundtrackHistory, (it
   </div>
 `);
 
+// Afleiders komen uit een vaste lijst, NIET meer uit de drankjes van
+// medespelers — anders kon je raden door het drankje van iemand anders
+// te herkennen (feedback testavond).
+const DRINK_DISTRACTORS = [
+  'Water', 'Spa Rood', 'Cola', 'Cola Zero', 'Fanta', 'Sprite', 'Ice Tea', 'Fristi', 'Chocomelk', 'Appelsap',
+  'Sinaasappelsap', 'Limonade', 'Koffie', 'Thee', 'Red Bull', 'Bier', 'Pils', 'Duvel', 'Kriek', 'Tripel',
+  'Rode wijn', 'Witte wijn', 'Rosé', 'Cava', 'Champagne', 'Gin-tonic', 'Aperol Spritz', 'Mojito', 'Cuba Libre',
+  'Whisky', 'Jenever', 'Porto', 'Baileys', 'Espresso Martini', 'Piña Colada', 'Margarita', 'Smoothie', 'Kombucha',
+];
+const normDrink = (d) => String(d || '').trim().toLowerCase().replace(/[^a-z0-9à-ÿ]/g, '');
 function buildDrinkOptions(list, index) {
-  const correct = list[index];
-  const others = list.filter((_, i) => i !== index).map(t => t.drink).filter(Boolean);
-  const distractors = shuffle(others).slice(0, 2);
-  const opts = [...new Set([correct.drink || '(geen antwoord)', ...distractors])];
-  while (opts.length < 2) opts.push(opts.length === 1 ? 'Water' : 'Cola');
-  return shuffle(opts);
+  const correct = (list[index].drink || '').trim() || '(geen antwoord)';
+  const cn = normDrink(correct);
+  const pool = DRINK_DISTRACTORS.filter(d => { const n = normDrink(d); return n && !cn.includes(n) && !n.includes(cn); });
+  return shuffle([correct, ...shuffle(pool).slice(0, 3)]);
 }
 
 async function hostPlaySoundtrack() {
@@ -2350,7 +2721,7 @@ function renderSoundtrack(lobby) {
     if (Session.isHost && st.stage === 'guessing' && track.trackId) hostPlaySoundtrack();
     // Eenmalig per nummer bepalen, anders schudden de knoppen door elkaar
     // bij elke her-render.
-    soundtrackOptionsCache = pickAnswerOptions(st.players, track.playerId, (p) => p.id);
+    soundtrackOptionsCache = pickAnswerOptions(st.players, track.playerId, (p) => p.id, 'st' + st.index);
   }
   document.getElementById('st-qnum').textContent = `Nummer ${st.index + 1} van ${st.list.length}`;
   document.getElementById('st-progress').style.width = Math.round(((st.index + 1) / st.list.length) * 100) + '%';
@@ -2371,15 +2742,16 @@ function renderSoundtrack(lobby) {
     soundtrackOptionsCache.forEach((p) => {
       const d = document.createElement('div');
       d.className = 'player-btn';
-      if (myOwnerGuess && myOwnerGuess.guess === p.id) d.classList.add('pending');
+      decorateOption(d, { isCorrect: false, isMine: !!myOwnerGuess && myOwnerGuess.guess === p.id, revealed: false });
       d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
       // Iedereen mag altijd gokken, ook op je eigen nummer — anders is
       // meteen duidelijk voor de rest van de kamer wiens nummer het is
       // (geen punten op je eigen nummer wordt afgedwongen in de backend).
-      if (!myOwnerGuess) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
+      if (!(myOwnerGuess && myOwnerGuess.guess === p.id)) d.onclick = () => submitSoundtrackOwnerGuess(p.id);
       ownerWrap.appendChild(d);
     });
   }
+  setPickStatus('st-owner-players', { myGuess: st.stage === 'guessing' ? myOwnerGuess : null, revealed: false, changeable: true });
 
   document.getElementById('st-drink-stage').style.display = st.stage === 'drink' ? 'block' : 'none';
   if (st.stage === 'drink') {
@@ -2395,13 +2767,10 @@ function renderSoundtrack(lobby) {
     (st.drinkOptions || []).forEach((opt) => {
       const d = document.createElement('div');
       d.className = 'player-btn';
-      if (st.drinkRevealed) {
-        if (opt === correctDrink) d.classList.add('correct');
-        else if (myDrinkGuess === opt) d.classList.add('wrong');
-      } else if (myDrinkGuess === opt) d.classList.add('pending');
+      decorateOption(d, { isCorrect: opt === correctDrink, isMine: myDrinkGuess === opt, revealed: !!st.drinkRevealed });
       d.innerHTML = `<div class="pb-name" style="text-align:center;padding:4px 0;">${esc(opt)}</div>`;
       // Zelfde reden als hierboven — iedereen mag altijd gokken.
-      if (!myDrinkGuess && !st.drinkRevealed) d.onclick = () => submitSoundtrackDrinkGuess(opt);
+      if (!st.drinkRevealed && myDrinkGuess !== opt) d.onclick = () => submitSoundtrackDrinkGuess(opt);
       drinkWrap.appendChild(d);
     });
   }
@@ -2436,7 +2805,8 @@ function renderSoundtrack(lobby) {
 async function submitSoundtrackOwnerGuess(targetId) {
   if (!latestLobby || !latestLobby.soundtrack) return;
   const st = latestLobby.soundtrack;
-  if ((st.ownerAnswers || {})[Session.playerId] || st.stage !== 'guessing') return;
+  const prevST = (st.ownerAnswers || {})[Session.playerId];
+  if (st.stage !== 'guessing' || (prevST && prevST.guess === targetId)) return;
   renderSoundtrack(localGuess('st_' + st.index, targetId));
   try { await withRetry(() => GameOps.submitSoundtrackGuess(Session.code, Session.playerId, targetId, st.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
@@ -2466,7 +2836,7 @@ async function hostRevealSoundtrackOwner() {
 async function submitSoundtrackDrinkGuess(drinkText) {
   if (!latestLobby || !latestLobby.soundtrack) return;
   const st = latestLobby.soundtrack;
-  if ((st.drinkAnswers || {})[Session.playerId] || st.drinkRevealed) return;
+  if (st.drinkRevealed || (st.drinkAnswers || {})[Session.playerId] === drinkText) return;
   renderSoundtrack(localGuess('dr_' + st.index, drinkText));
   try { await withRetry(() => GameOps.submitSoundtrackDrinkGuess(Session.code, Session.playerId, drinkText, st.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
@@ -2695,38 +3065,109 @@ async function confirmBiechtRecording() {
   markVoiceStepDone();
 }
 
-// Stemvervorming: neem het opgenomen fragment, verander toonhoogte + snelheid
-// via playbackRate en filter het licht, render het offline en zet het om
-// naar een WAV data-URL zodat het klein genoeg blijft om op te slaan.
+// Stemvervorming. Vroeger veranderde playbackRate toonhoogte ÉN tempo
+// tegelijk: de diepe stem werd traag en brommerig, de hoge stem sneller
+// dan normaal — beide moeilijk te verstaan (feedback testavond). Nu
+// verschuiven we enkel de toonhoogte (tijdrek via overlap-add + herbe-
+// monsteren), zodat het tempo gelijk blijft, met een lichtere robot-laag
+// die de stem onherkenbaar maakt maar de woorden verstaanbaar laat.
+const VOICE_OUT_RATE = 11025;
+
+function voiceMono(audioBuffer) {
+  const n = audioBuffer.length;
+  const out = new Float32Array(n);
+  for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
+    const d = audioBuffer.getChannelData(c);
+    for (let i = 0; i < n; i++) out[i] += d[i] / audioBuffer.numberOfChannels;
+  }
+  return out;
+}
+
+// Rekt het geluid in de tijd met factor `stretch` zonder de toonhoogte
+// te veranderen (eenvoudige overlap-add met Hann-vensters).
+function olaTimeStretch(input, stretch, frame) {
+  const hopOut = frame >> 2;
+  const hopIn = hopOut / stretch;
+  const outLen = Math.ceil(input.length * stretch) + frame;
+  const out = new Float32Array(outLen);
+  const norm = new Float32Array(outLen);
+  const win = new Float32Array(frame);
+  for (let i = 0; i < frame; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (frame - 1));
+  for (let k = 0; ; k++) {
+    const inPos = Math.round(k * hopIn);
+    const outPos = k * hopOut;
+    if (inPos >= input.length || outPos + frame > outLen) break;
+    for (let j = 0; j < frame; j++) {
+      const v = inPos + j < input.length ? input[inPos + j] : 0;
+      out[outPos + j] += v * win[j];
+      norm[outPos + j] += win[j];
+    }
+  }
+  for (let i = 0; i < outLen; i++) if (norm[i] > 1e-3) out[i] /= norm[i];
+  return out;
+}
+
+// Toonhoogte × factor, zelfde duur, meteen naar VOICE_OUT_RATE.
+function pitchShiftTo(input, inRate, factor) {
+  const frame = inRate >= 32000 ? 2048 : 1024;
+  const stretched = olaTimeStretch(input, factor, frame);
+  const duration = input.length / inRate;
+  const outLen = Math.ceil(duration * VOICE_OUT_RATE);
+  const out = new Float32Array(outLen);
+  const step = (inRate / VOICE_OUT_RATE) * factor;
+  // Kleine middeling tegen aliasing bij het neerschalen.
+  const taps = Math.max(1, Math.floor(step));
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * step;
+    let acc = 0;
+    for (let t = 0; t < taps; t++) {
+      const p = pos + t - (taps - 1) / 2;
+      const i0 = Math.floor(p);
+      const frac = p - i0;
+      const a = stretched[i0] || 0, b = stretched[i0 + 1] || 0;
+      acc += a + (b - a) * frac;
+    }
+    out[i] = acc / taps;
+  }
+  return out;
+}
+
 async function distortVoice(blob, style) {
   const arrayBuf = await blob.arrayBuffer();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   const tempCtx = new AudioCtx();
-  const audioBuffer = await tempCtx.decodeAudioData(arrayBuf);
-  await tempCtx.close();
+  const audioBuffer = await new Promise((resolve, reject) => {
+    const pr = tempCtx.decodeAudioData(arrayBuf, resolve, reject);
+    if (pr && pr.then) pr.then(resolve, reject);
+  });
+  try { await tempCtx.close(); } catch (e) { /* negeren */ }
 
-  // A plain pitch shift alone can still leave a voice placeable by close
-  // friends. Push the shift further and layer a light ring-modulation
-  // (amplitude modulated by a low-frequency oscillator) on top for a
-  // genuinely artificial "voice changer" timbre, mixed with some of the
-  // dry signal so the words stay intelligible. Style is an explicit
-  // player choice now, not a coin flip.
   const low = style !== 'high';
-  const pitchFactor = low ? 0.6 + Math.random() * 0.08 : 1.5 + Math.random() * 0.25;
-  const outSampleRate = 11025;
-  const outLength = Math.ceil((audioBuffer.duration / pitchFactor) * outSampleRate);
-  const offlineCtx = new OfflineAudioContext(1, outLength, outSampleRate);
+  const pitchFactor = low ? 0.74 + Math.random() * 0.04 : 1.32 + Math.random() * 0.06;
+  let mono = voiceMono(audioBuffer);
+  // Volume gelijktrekken zodat stille opnames toch goed hoorbaar zijn.
+  let peak = 0;
+  for (let i = 0; i < mono.length; i++) { const v = Math.abs(mono[i]); if (v > peak) peak = v; }
+  if (peak > 0.01) { const g = Math.min(4, 0.9 / peak); for (let i = 0; i < mono.length; i++) mono[i] *= g; }
+  const shifted = pitchShiftTo(mono, audioBuffer.sampleRate, pitchFactor);
 
+  const offlineCtx = new OfflineAudioContext(1, shifted.length, VOICE_OUT_RATE);
+  const buf = offlineCtx.createBuffer(1, shifted.length, VOICE_OUT_RATE);
+  buf.getChannelData(0).set(shifted);
   const src = offlineCtx.createBufferSource();
-  src.buffer = audioBuffer;
-  src.playbackRate.value = pitchFactor;
+  src.buffer = buf;
 
-  const filter = offlineCtx.createBiquadFilter();
-  filter.type = low ? 'lowpass' : 'highpass';
-  filter.frequency.value = low ? 2800 : 350;
+  // Spraakband behouden (300–3400 Hz is waar verstaanbaarheid zit).
+  const hp = offlineCtx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = low ? 90 : 220;
+  const lp = offlineCtx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 4200;
+  const presence = offlineCtx.createBiquadFilter();
+  presence.type = 'peaking'; presence.frequency.value = 2200; presence.Q.value = 0.9; presence.gain.value = 4;
 
+  // Lichte robot-laag (ringmodulatie), veel zachter dan voorheen.
   const modulator = offlineCtx.createOscillator();
-  modulator.frequency.value = low ? 32 : 60;
+  modulator.frequency.value = low ? 38 : 70;
   const modDepth = offlineCtx.createGain();
   modDepth.gain.value = 0.5;
   const ringGain = offlineCtx.createGain();
@@ -2734,21 +3175,18 @@ async function distortVoice(blob, style) {
   modulator.connect(modDepth);
   modDepth.connect(ringGain.gain);
 
-  const dryGain = offlineCtx.createGain();
-  dryGain.gain.value = 0.55;
-  const wetGain = offlineCtx.createGain();
-  wetGain.gain.value = 0.65;
+  const dryGain = offlineCtx.createGain(); dryGain.gain.value = 0.85;
+  const wetGain = offlineCtx.createGain(); wetGain.gain.value = 0.3;
 
-  src.connect(filter);
-  filter.connect(dryGain);
-  filter.connect(ringGain);
+  src.connect(hp); hp.connect(lp); lp.connect(presence);
+  presence.connect(dryGain);
+  presence.connect(ringGain);
   ringGain.connect(wetGain);
   dryGain.connect(offlineCtx.destination);
   wetGain.connect(offlineCtx.destination);
 
   modulator.start();
   src.start();
-
   const rendered = await offlineCtx.startRendering();
   return audioBufferToWavDataUrl(rendered);
 }
@@ -2796,7 +3234,7 @@ function renderRound5Intro(lobby) {
 async function hostStartBiechtPlayback() {
   biechtHistory = [];
   biechtHistoryPushedFor = -1;
-  const order = shuffle(latestLobby.players.filter(p => p.voiceReady).map(p => p.id)).slice(0, itemCap());
+  const order = pickRoundItems(latestLobby.players.filter(p => p.voiceReady).map(p => p.id), itemCap());
   if (order.length === 0) {
     await withRetry(() => GameOps.setPhase(Session.code, 'round5-final'));
     showFinal();
@@ -2829,7 +3267,7 @@ async function renderBiecht(lobby) {
       });
       // Eenmalig per verhaal bepalen, anders schudden de knoppen door
       // elkaar bij elke her-render.
-      biechtOptionsCache = pickAnswerOptions(lobby.players, targetId, (p) => p.id);
+      biechtOptionsCache = pickAnswerOptions(lobby.players, targetId, (p) => p.id, 'bc' + b.index);
     }
 
     const myGuess = (b.answers || {})[Session.playerId];
@@ -2838,19 +3276,15 @@ async function renderBiecht(lobby) {
     biechtOptionsCache.forEach((p) => {
       const d = document.createElement('div');
       d.className = 'player-btn';
-      if (b.revealed) {
-        if (p.id === targetId) d.classList.add('correct');
-        else if (myGuess && myGuess.guess === p.id) d.classList.add('wrong');
-      } else if (myGuess && myGuess.guess === p.id) {
-        d.classList.add('pending');
-      }
+      decorateOption(d, { isCorrect: p.id === targetId, isMine: !!myGuess && myGuess.guess === p.id, revealed: b.revealed });
       d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
       // Iedereen mag altijd gokken, ook op je eigen verhaal — anders is
       // meteen duidelijk voor de rest van de kamer van wie het verhaal is
       // (geen punten op je eigen verhaal wordt afgedwongen in de backend).
-      if (!myGuess && !b.revealed) d.onclick = () => submitBiechtGuess(p.id);
+      if (!b.revealed && !(myGuess && myGuess.guess === p.id)) d.onclick = () => submitBiechtGuess(p.id);
       wrap.appendChild(d);
     });
+    setPickStatus('biecht-guess-players', { myGuess, revealed: b.revealed, isCorrectGuess: !!myGuess && myGuess.guess === targetId, isOwnItem: targetId === Session.playerId });
 
     const revealBox = document.getElementById('biecht-reveal');
     revealBox.style.display = b.revealed ? 'block' : 'none';
@@ -2905,7 +3339,8 @@ async function renderBiecht(lobby) {
 async function submitBiechtGuess(targetId) {
   if (!latestLobby || !latestLobby.biecht) return;
   const b = latestLobby.biecht;
-  if ((b.answers || {})[Session.playerId] || b.revealed) return;
+  const prevBC = (b.answers || {})[Session.playerId];
+  if (b.revealed || (prevBC && prevBC.guess === targetId)) return;
   renderBiecht(localGuess('bc_' + b.index, targetId));
   try { await withRetry(() => GameOps.submitBiechtGuess(Session.code, Session.playerId, targetId, b.index)); } catch (e) { /* blijft lokaal zichtbaar */ }
 }
@@ -2926,7 +3361,7 @@ function renderBiechtVoting(lobby, b) {
     if (!p) return;
     const d = document.createElement('div');
     d.className = 'player-btn';
-    if (myVote === pid) d.classList.add('pending');
+    if (myVote === pid && !hideMyPicks()) d.classList.add('pending');
     d.innerHTML = `<div class="pb-avatar" style="background:${p.bg};color:${p.color};">${esc(p.letter)}</div><div class="pb-name">${esc(p.name)}</div>`;
     if (!myVote && p.id !== Session.playerId) d.onclick = () => castBiechtVote(pid);
     wrap.appendChild(d);
@@ -3082,7 +3517,7 @@ function tvLinkUrl() {
 
 function copyTvLink() {
   if (!Session.code) return;
-  navigator.clipboard?.writeText(tvLinkUrl()).catch(() => {});
+  safeClipboardWrite(tvLinkUrl()).catch(() => {});
   ['tv-copy-btn', 'lobby-tv-btn'].forEach(id => {
     const b = document.getElementById(id);
     if (!b) return;
@@ -3090,6 +3525,28 @@ function copyTvLink() {
     b.textContent = 'Tv-link gekopieerd ✓';
     setTimeout(() => { b.textContent = orig; }, 2000);
   });
+}
+
+// Tv-scherm koppelen vanaf het startscherm van de tv/laptop zelf — op een
+// tv kan je geen gekopieerde link plakken, een code intikken wel.
+async function tvJoinClick() {
+  const input = document.getElementById('tv-join-code');
+  const errEl = document.getElementById('tv-join-error');
+  let code = (input.value || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (/^[A-Z]{2}\d{2}$/.test(code)) code = 'UM-' + code;
+  if (/^UM[A-Z]{2}\d{2}$/.test(code)) code = 'UM-' + code.slice(2);
+  if (!/^UM-[A-Z]{2}\d{2}$/.test(code)) {
+    errEl.textContent = 'Vul de lobby-code in zoals op de telefoon van de host staat (bv. UM-AB12).';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  try {
+    const url = new URL(window.location.href);
+    url.search = ''; url.searchParams.set('tv', code);
+    window.history.replaceState({}, '', url.toString());
+  } catch (e) { /* negeren */ }
+  startTvMode(code, '');
 }
 
 function openTvHere() { if (Session.code) window.open(tvLinkUrl(), '_blank'); }
@@ -3115,7 +3572,7 @@ function tvBoard(lobby) {
   const rows = [...lobby.players].sort((a, b) => (b.score || 0) - (a.score || 0));
   const ranks = ['🥇', '🥈', '🥉'];
   return `<div class="card tv-board">${rows.map((p, i) => `
-    <div class="score-row"><div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] ?? (i + 1)}</div>
+    <div class="score-row"><div class="score-rank ${i === 0 ? 'gold' : ''}">${ranks[i] !== undefined ? ranks[i] : (i + 1)}</div>
     <div class="score-name" style="text-align:left;">${esc(p.name)}</div><div class="score-pts">${p.score || 0} pt</div></div>`).join('')}</div>`;
 }
 
@@ -3158,10 +3615,9 @@ function renderTv(lobby) {
     const pr = lobby.photoRound; const photo = pr.photos[pr.index];
     const url = photo.playerId ? photoCache[photo.playerId] : photo.photo;
     if (photo.playerId && !url) loadPhoto(photo.playerId).then(() => { if (latestLobby) renderTv(latestLobby); });
-    const m = photo.mask;
-    const mask = (m && m.maskX !== undefined) ? `<div class="r2-mask" style="left:${Number(m.maskX) || 0}%;top:${Number(m.maskY) || 0}%;width:${Number(m.maskScale) || 34}%;">${maskSvgHtml()}</div>` : '';
+    const f = photoFocusOf(photo.mask);
     h = `<div class="tv-kicker">Ronde 2 · Foto ${pr.index + 1} van ${pr.photos.length}</div>
-      <div class="tv-photo-stage"><div class="tv-photo" id="tv-photo" style="background-image:url(${safeImg(url)});${pr.revealed ? 'transform:scale(1);' : ''}">${url ? mask : `<div class="tv-title" style="padding-top:20%;">${esc(photo.emoji || '')}</div>`}</div></div>`;
+      <div class="tv-photo-stage"><div class="tv-photo" id="tv-photo" style="background-image:url(${safeImg(url)});background-position:${f.x}% ${f.y}%;transform-origin:${f.x}% ${f.y}%;${pr.revealed ? 'transform:scale(1);' : ''}">${url ? '' : `<div class="tv-title" style="padding-top:20%;">${esc(photo.emoji || '')}</div>`}</div></div>`;
     h += pr.revealed ? `<div class="tv-reveal">${esc(photo.player)} was het!</div>` : tvGuessCount(lobby, pr.answers);
   } else if (ph === 'hotornot' && lobby.hotornot) {
     const fav = lobby.hotornot; const tally = {};
@@ -3230,7 +3686,7 @@ function tvTick() {
   const photoEl = document.getElementById('tv-photo');
   if (photoEl && lobby.photoRound && !lobby.photoRound.revealed) {
     const progress = Math.min(1, (serverNow() - lobby.photoRound.questionStartAt) / 1000 / PHOTOROUND_SECONDS);
-    photoEl.style.transform = `scale(${(8 - 7 * progress).toFixed(3)})`;
+    photoEl.style.transform = `scale(${photoZoomScale(progress)})`;
   }
 }
 
@@ -3246,6 +3702,20 @@ function tvTick() {
 // die param niet meer zien en zou een oude lokale sessie het verse
 // linkje foutief overschrijven met het "Welkom terug"-scherm.
 const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join');
+const hadHostLinkOnLoad = new URL(window.location.href).searchParams.has('host');
+
+// ── Host-herstellink (?host=CODE&key=SLEUTEL) ──────
+(function recoverHostFromUrl() {
+  const url = new URL(window.location.href);
+  const code = (url.searchParams.get('host') || '').trim().toUpperCase();
+  const key = (url.searchParams.get('key') || '').trim();
+  if (!code) return;
+  url.searchParams.delete('host');
+  url.searchParams.delete('key');
+  window.history.replaceState({}, '', url.toString());
+  if (!key) return;
+  recoverHostFromLink(code, key);
+})();
 
 // ── Rechtstreeks uitnodigen via link ──────
 // copyInviteCode() deelt een link met ?join=CODE&spel=NAAM erin, zodat
@@ -3276,7 +3746,7 @@ const hadJoinLinkOnLoad = new URL(window.location.href).searchParams.has('join')
 // De voorgevulde velden blijven aanpasbaar, zodat dit ook werkt wanneer
 // iemand bewust wil terugkeren naar een ANDER, ouder opgeslagen spel.
 (function checkLocalSessionOnLoad() {
-  if (hadJoinLinkOnLoad || tvMode) return;
+  if (hadJoinLinkOnLoad || hadHostLinkOnLoad || tvMode) return;
   let ptr;
   try { ptr = JSON.parse(localStorage.getItem(LAST_SESSION_POINTER_KEY) || 'null'); } catch (e) { ptr = null; }
   if (!ptr || !ptr.gameName || !ptr.code) return;
@@ -3352,6 +3822,7 @@ const Sound = {
     if (sec > 0 && sec <= 3 && this.lastTickKey !== k) { this.lastTickKey = k; this.tone(sec === 1 ? 1175 : 880, 0.09, 'square', 0.05); }
   },
   reveal(result) {
+    if (hideMyPicks()) result = null; // scherm/geluid gedeeld → juist/fout niet verklappen
     if (result === true) [523, 659, 784].forEach((f, i) => this.tone(f, 0.18, 'triangle', 0.14, i * 0.09));
     else if (result === false) this.tone(196, 0.35, 'sawtooth', 0.06);
     else this.tone(587, 0.22, 'triangle', 0.11);

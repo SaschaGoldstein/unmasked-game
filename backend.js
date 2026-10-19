@@ -41,6 +41,25 @@ function makeLobbyCode() {
 
 function makeId() { return Math.random().toString(36).slice(2, 10); }
 
+// ── Host-herstel ────────────────────────────────────────────────────
+// Bij het aanmaken krijgt de host een geheime sleutel. In de lobby staat
+// enkel de HASH ervan (lobby.hostKey = { hash, playerId }) — wie de lobby
+// leest, kent de sleutel dus niet. Met de herstellink (?host=CODE&key=...)
+// kan de host op eender welk toestel zijn eigen plek en host-rol terugnemen,
+// ook als het oorspronkelijke toestel weg is of de opslag gewist werd.
+function makeHostKey() {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = new Uint8Array(20);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => chars[b % chars.length]).join('');
+}
+
+async function hashHostKey(key) {
+  const data = new TextEncoder().encode('unmasked-host:' + key);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ── Gedeelde klok ───────────────────────────────────────────────────
 // Telefoons lopen nooit exact gelijk. Timers en snelheidspunten vergelijken
 // tijdstempels van verschillende toestellen, dus zonder correctie onthulde
@@ -55,8 +74,19 @@ function serverNow() { return Date.now() + clockOffsetMs; }
 // zodra expiresAt verstreken is, mits er een TTL-policy op dat veld staat
 // (zie README-opruiming). Foto's, bekentenissen en stemmen blijven zo niet
 // eindeloos bewaard.
-const LOBBY_TTL_MS = 48 * 60 * 60 * 1000;
+// Dossiers worden vaak dagen vóór het feest ingevuld, dus: 7 dagen, en
+// zolang iemand de lobby open heeft, schuift die termijn mee op
+// (zie keepLobbyAlive in script.js). Pas 7 dagen na het laatste gebruik
+// wordt alles gewist.
+const LOBBY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 function lobbyExpiry() { return new Date(Date.now() + LOBBY_TTL_MS); }
+function expiryMs(v) {
+  if (!v) return 0;
+  if (typeof v === 'number') return v;
+  if (v.toMillis) return v.toMillis();
+  if (v instanceof Date) return v.getTime();
+  return 0;
+}
 
 function nameTaken(lobby, name) {
   const n = (name || '').trim().toLowerCase();
@@ -116,12 +146,13 @@ class LocalBackend {
 
   async syncClock() { clockOffsetMs = 0; }
 
-  async createLobby(hostName, maxPlayers, gameName) {
+  async createLobby(hostName, maxPlayers, gameName, hostKeyHash) {
     let code = makeLobbyCode();
     for (let i = 0; i < 10 && this._read(code); i++) code = makeLobbyCode();
     const playerId = makeId();
     const lobby = {
       code, hostId: playerId, maxPlayers, gameName,
+      hostKey: hostKeyHash ? { hash: hostKeyHash, playerId } : null,
       phase: 'lobby', round: 0,
       players: [newPlayer(playerId, hostName, 0)],
       createdAt: Date.now(), expiresAt: lobbyExpiry().getTime(),
@@ -180,6 +211,10 @@ class LocalBackend {
   async getVoice(code, playerId) {
     return localStorage.getItem(this._voiceKey(code, playerId));
   }
+
+  async extendExpiry(code) {
+    return this.updateLobby(code, (lobby) => { lobby.expiresAt = Date.now() + LOBBY_TTL_MS; });
+  }
 }
 
 // ── FirebaseBackend: Firestore ──────────────────────────────────────────
@@ -229,7 +264,7 @@ class FirebaseBackend {
     } catch (e) { clockOffsetMs = 0; /* geen meting mogelijk — eigen klok gebruiken */ }
   }
 
-  async createLobby(hostName, maxPlayers, gameName) {
+  async createLobby(hostName, maxPlayers, gameName, hostKeyHash) {
     await this._ready;
     const playerId = makeId();
     let code = null;
@@ -240,6 +275,7 @@ class FirebaseBackend {
       const ref = this.fs.doc(this.db, 'lobbies', candidate);
       const lobby = {
         code: candidate, hostId: playerId, maxPlayers, gameName,
+        hostKey: hostKeyHash ? { hash: hostKeyHash, playerId } : null,
         phase: 'lobby', round: 0,
         players: [newPlayer(playerId, hostName, 0)],
         createdAt: Date.now(), expiresAt: lobbyExpiry(),
@@ -339,6 +375,24 @@ class FirebaseBackend {
     const snap = await this.fs.getDoc(ref);
     return snap.exists() ? snap.data().dataUrl : null;
   }
+
+  // Houdt een actieve lobby in leven: verschuift expiresAt van de lobby en
+  // van alle bestaande foto's/stemopnames. Enkel bestaande documenten
+  // aanraken (merge), zodat de Firestore-regels (url/dataUrl verplicht) blijven kloppen.
+  async extendExpiry(code, playerIds) {
+    await this._ready;
+    const until = lobbyExpiry();
+    for (const id of playerIds) {
+      for (const sub of ['photos', 'voices']) {
+        const ref = this.fs.doc(this.db, 'lobbies', code, sub, id);
+        try {
+          const snap = await this.fs.getDoc(ref);
+          if (snap.exists()) await this.fs.setDoc(ref, { expiresAt: until }, { merge: true });
+        } catch (e) { /* volgende keer opnieuw */ }
+      }
+    }
+    await this.updateLobby(code, (lobby) => { lobby.expiresAt = until; });
+  }
 }
 
 // ── Backend selection ────────────────────────────────────────────────
@@ -372,7 +426,7 @@ function speedPoints(elapsedSec, secondsAllowed) {
   return Math.max(1, Math.min(MAX_ITEM_POINTS, 1 + Math.round(9 * (1 - e / secondsAllowed))));
 }
 const RANK_POINTS = [10, 8, 6, 5, 4, 3, 2];
-function rankPoints(rankIndex) { return RANK_POINTS[rankIndex] ?? 1; }
+function rankPoints(rankIndex) { return RANK_POINTS[rankIndex] !== undefined ? RANK_POINTS[rankIndex] : 1; }
 
 // ── Gokken en stemmen ──
 // Staan in lobby.guesses, per vraag in een eigen "emmer":
@@ -447,7 +501,7 @@ async function submitPhoto(code, playerId, photo) {
     if (!p) return;
     if (!photo || !photo.url) { delete p.photo; return; }
     const meta = { has: true };
-    if (photo.maskX !== undefined) Object.assign(meta, { maskX: photo.maskX, maskY: photo.maskY, maskScale: photo.maskScale });
+    if (photo.focusX !== undefined) Object.assign(meta, { focusX: Number(photo.focusX) || 0, focusY: Number(photo.focusY) || 0 });
     p.photo = meta;
   });
 }
@@ -586,6 +640,26 @@ async function removePlayer(code, playerId) {
 async function claimHost(code, playerId, expectedHostId) {
   return Backend.updateLobby(code, (lobby) => {
     if (lobby.hostId !== expectedHostId || !findPlayer(lobby, playerId)) return;
+    lobby.hostId = playerId;
+  });
+}
+
+// Lobby's van vóór de herstellink (of na een host-overname): de huidige
+// host legt alsnog een eigen sleutel vast.
+async function setHostKey(code, playerId, hash) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (lobby.hostId !== playerId) return;
+    // Nooit de sleutel van een ándere (oorspronkelijke) host overschrijven.
+    if (lobby.hostKey && lobby.hostKey.hash && lobby.hostKey.playerId !== playerId) return;
+    lobby.hostKey = { hash, playerId };
+  });
+}
+
+// Host-herstel via de herstellink: de eigenaar van de sleutel wordt opnieuw
+// host, ook als iemand het intussen had overgenomen.
+async function reclaimHost(code, playerId) {
+  return Backend.updateLobby(code, (lobby) => {
+    if (!findPlayer(lobby, playerId)) return;
     lobby.hostId = playerId;
   });
 }
@@ -760,7 +834,7 @@ async function submitSoundtrackDrinkGuess(code, playerId, drink, index) { return
 window.GameOps = {
   submitDossier, reopenDossier, submitPhoto, setPhase, addScore, setSettings, startRematch,
   setQuickfire, submitQFGuess, revealQuickfire, setPhotoRound, submitPhotoGuess, revealPhotoRound,
-  setHotOrNot, voteFavoritePhoto, removePlayer, claimHost, speedPoints, rankPoints,
+  setHotOrNot, voteFavoritePhoto, removePlayer, claimHost, setHostKey, reclaimHost, speedPoints, rankPoints,
   setVerhoor, submitVerhoorGuess, revealVerhoor,
   setBiecht, markVoiceReady, markVoiceSkipped, voteBiecht, submitBiechtGuess, revealBiechtStory, finalizeBiechtVote,
   setSoundtrack, submitSoundtrackGuess, submitSoundtrackDrinkGuess, revealSoundtrackOwner, revealSoundtrackDrink,

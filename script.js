@@ -571,6 +571,24 @@ function pickFairMix(items, count, getKey) {
 // zien) en heeft geen invloed op wie er score krijgt.
 const MAX_ANSWER_OPTIONS = 8;
 
+// "3 van 5 hebben gekozen" — voor iedereen zichtbaar, zodat ook de host
+// weet wanneer hij kan onthullen.
+function setPickCount(containerId, answers, lobby, show = true) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let el = document.getElementById(containerId + '-count');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = containerId + '-count';
+    el.className = 'pick-count';
+    container.insertAdjacentElement('afterend', el);
+  }
+  const total = ((lobby && lobby.players) || []).length;
+  const n = Object.keys(answers || {}).length;
+  el.textContent = `${n} van ${total} ${n === 1 ? 'heeft' : 'hebben'} gekozen`;
+  el.style.display = show && total ? 'block' : 'none';
+}
+
 // Seed per vraag (bv. 'qf3'): ieder toestel berekent zo exact dezelfde
 // subset in dezelfde volgorde — vroeger koos elk toestel zijn eigen
 // willekeurige afleiders, waardoor spelers "andere antwoorden" zagen.
@@ -695,7 +713,34 @@ function syncToLobbyPhase(lobby) {
   const targetIdx = SCREEN_SEQUENCE.indexOf(sync.screen);
   // Alleen voorwaarts springen — nooit iemand terugduwen die zelf al
   // (op eigen tempo) verder geraakt is dan deze fase aangeeft.
-  if (targetIdx > curIdx) sync.action();
+  if (targetIdx > curIdx) {
+    if (DOSSIER_SCREENS.includes(activeEl.id)) autoSubmitDossierDraft(lobby);
+    sync.action();
+  }
+}
+
+// Start de host terwijl iemand nog zijn dossier invult, dan werd die
+// speler naar Ronde 1 getrokken en ging alles wat hij al ingevuld had
+// verloren. Nu wordt wat er al is (antwoorden, gekozen foto, opgenomen
+// biecht) automatisch ingediend.
+const DOSSIER_SCREENS = ['s-dossier', 's-dossier-photo', 's-photo-mask', 's-dossier-voice'];
+let autoSubmitDone = false;
+function autoSubmitDossierDraft(lobby) {
+  if (autoSubmitDone || !Session.code || !Session.playerId) return;
+  const me = lobby.players.find(p => p.id === Session.playerId);
+  if (!me || me.dossierDone) return;
+  autoSubmitDone = true;
+  // Open tekstvak eerst bewaren.
+  if (dossierExpandedRow !== null) {
+    const idx = sessionDossierQs.indexOf(dossierExpandedRow);
+    if (idx >= 0) saveDossierRowOnBlur(idx);
+  }
+  const answers = { ...Session.dossierAnswers };
+  const tasks = [];
+  if (Object.keys(answers).length) tasks.push(withRetry(() => GameOps.submitDossier(Session.code, Session.playerId, answers)));
+  if (pendingPhotoDataUrl && !hasPhoto(me)) tasks.push(withRetry(() => GameOps.submitPhoto(Session.code, Session.playerId, { url: pendingPhotoDataUrl, focusX: photoFocus.x, focusY: photoFocus.y })));
+  if (distortedVoiceDataUrl && !me.voiceReady) tasks.push(withRetry(() => Backend.submitVoice(Session.code, Session.playerId, distortedVoiceDataUrl)).then(() => withRetry(() => GameOps.markVoiceReady(Session.code, Session.playerId))));
+  Promise.all(tasks).then(() => { try { localStorage.removeItem(answersStorageKey(Session.gameName, Session.code)); } catch (e) { /* negeren */ } }).catch(() => { autoSubmitDone = false; });
 }
 
 function renderAllScreens(lobby) {
@@ -797,8 +842,11 @@ function subscribeLobby() {
 // verbinding opnieuw op zodra de telefoon terug actief wordt na een stilte.
 setInterval(() => {
   if (tvMode || !Session.code || !latestLobby) return;
+  // Enkel opnieuw tekenen als het scherm effectief moest verspringen —
+  // anders kon een tik die net op dat moment viel verloren gaan.
+  const before = document.querySelector('.screen.active');
   syncToLobbyPhase(latestLobby);
-  renderAllScreens(latestLobby);
+  if (document.querySelector('.screen.active') !== before) renderAllScreens(latestLobby);
 }, 3000);
 function resubscribeIfStale(force) {
   if (tvMode || !Session.code || !Session.playerId) return;
@@ -1798,7 +1846,7 @@ async function reopenDossierForEditing() {
 // de host beheert timing en kent scores toe zodat niemand dubbel telt.
 
 const QUICKFIRE_SECONDS = 20;
-const NEXT_BTN_DELAY_MS = 1500;
+const NEXT_BTN_DELAY_MS = 3000;
 let qfCountdownTimer = null;
 let lastRenderedQFIndex = -1;
 let lastFlashedQFIndex = -1;
@@ -1818,12 +1866,38 @@ function renderRound1Intro(lobby) {
   const introScreen = document.getElementById('s-round1-intro');
   if (!introScreen) return;
   document.getElementById('r1intro-host-btn').style.display = Session.isHost ? 'block' : 'none';
+  document.getElementById('r1intro-practice-btn').style.display = Session.isHost ? 'block' : 'none';
   document.getElementById('r1intro-wait-msg').style.display = Session.isHost ? 'none' : 'block';
+}
+
+// ── Proefvraag ──
+// Eén vraag vooraf die niet meetelt, zodat iedereen het tikken, wisselen
+// en de timer leert kennen. Eigen gok-emmer ('qp_'), zodat die gokken
+// nooit bij de echte vraag 1 terechtkomen.
+let practiceLabel = null;
+async function hostStartPractice() {
+  const picked = pickSessionQuestions();
+  if (!picked.questions.length) { await hostStartRound1(); return; }
+  const q = picked.questions[0];
+  practiceLabel = q.label;
+  const quickfire = { questions: [q], usePlayers: picked.usePlayers, index: 0, questionStartAt: serverNow(), answers: {}, revealed: false, practice: true, bucket: 'qp_' };
+  lastRenderedQFIndex = -1; lastFlashedQFIndex = -1; qfNextBtnReady = {};
+  await withRetry(() => GameOps.setQuickfire(Session.code, quickfire));
+  await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-active'));
+  go('s-round1-q');
+  renderQuickFire(updateLocalLobby({ quickfire, phase: 'quickfire-active' }));
 }
 
 async function hostStartRound1() {
   qfHistory = [];
+  // Na een proefvraag: lokale "al getekend"-staat resetten, anders denkt
+  // dit toestel dat vraag 1 (index 0) al getoond werd.
+  lastRenderedQFIndex = -1; lastFlashedQFIndex = -1; qfNextBtnReady = {};
   const picked = pickSessionQuestions();
+  if (practiceLabel && picked.questions.length > 1) {
+    const i = picked.questions.findIndex(q => q.label === practiceLabel);
+    if (i >= 0) picked.questions.splice(i, 1);
+  }
   if (!picked.questions.length) {
     await skipRoundTo(1, 'quickfire-score', 'Ronde 1 werd overgeslagen: er waren nog geen ingevulde dossiervragen.');
     showScoreR1();
@@ -1847,8 +1921,9 @@ function renderQuickFire(lobby) {
   document.getElementById('r1-qanswer').textContent = '"' + q.answerText + '"';
   document.getElementById('r1-history-btn').style.display = (Session.isHost && qfHistory.length) ? 'block' : 'none';
 
-  if (qf.index !== lastRenderedQFIndex) {
-    lastRenderedQFIndex = qf.index;
+  const qfKey = (qf.bucket || 'qf_') + qf.index + '@' + qf.questionStartAt;
+  if (qfKey !== lastRenderedQFIndex) {
+    lastRenderedQFIndex = qfKey;
     clearInterval(qfCountdownTimer);
     qfCountdownTimer = setInterval(() => tickQFCountdown(), 200);
     tickQFCountdown();
@@ -1876,22 +1951,25 @@ function renderQuickFire(lobby) {
   });
   const meQF = lobby.players && lobby.players.find(pl => pl.id === Session.playerId);
   setPickStatus('r1-answers', { myGuess, revealed: qf.revealed, isCorrectGuess: !!myGuess && myGuess.guess === q.correctPlayer, isOwnItem: !!meQF && meQF.name === q.correctPlayer });
+  setPickCount('r1-answers', qf.answers, lobby, !qf.revealed);
+  document.getElementById('r1-reveal-now-btn').style.display = (Session.isHost && !qf.revealed) ? 'block' : 'none';
+  document.getElementById('r1-qnum').textContent = qf.practice ? '🧪 Proefvraag — telt niet mee' : `Vraag ${qf.index + 1} van ${qf.questions.length}`;
 
   const revealBox = document.getElementById('r1-reveal');
   revealBox.style.display = qf.revealed ? 'block' : 'none';
   if (qf.revealed) {
     clearInterval(qfCountdownTimer);
-    if (lastFlashedQFIndex !== qf.index) {
-      lastFlashedQFIndex = qf.index;
+    if (lastFlashedQFIndex !== qfKey) {
+      lastFlashedQFIndex = qfKey;
       flashTimerZero('r1-timer-ring');
       Sound.reveal(myGuess ? (myGuess.guess === q.correctPlayer) : null);
       // Even een korte adempauze voor de "volgende"-knop verschijnt, zodat
       // iedereen de tijd heeft om het resultaat te lezen in plaats van
       // meteen door te moeten klikken.
-      setTimeout(() => { qfNextBtnReady[qf.index] = true; renderQuickFire(latestLobby); }, NEXT_BTN_DELAY_MS);
+      setTimeout(() => { qfNextBtnReady[qfKey] = true; renderQuickFire(latestLobby); }, NEXT_BTN_DELAY_MS);
       // Vastleggen vóór "Volgende vraag" deze qf.answers alweer leegmaakt
       // — zie openHistoryViewer('quickfire') hierboven.
-      qfHistory.push({
+      if (!qf.practice) qfHistory.push({
         label: q.label,
         answerText: q.answerText,
         correctPlayer: q.correctPlayer,
@@ -1910,9 +1988,9 @@ function renderQuickFire(lobby) {
       <div class="card-title">Het was ${esc(q.correctPlayer)}!</div>
       <div class="card-sub">${correctVoters.length ? `Juist geraden door: ${correctVoters.map(p => esc(p.name)).join(', ')}` : 'Niemand raadde het deze keer.'}</div>`;
     const nextBtn = document.getElementById('r1-next-btn');
-    const nextReady = !!qfNextBtnReady[qf.index];
+    const nextReady = !!qfNextBtnReady[qfKey];
     nextBtn.style.display = (Session.isHost && nextReady) ? 'block' : 'none';
-    nextBtn.textContent = qf.index === qf.questions.length - 1 ? 'Bekijk scorebord →' : 'Volgende vraag →';
+    nextBtn.textContent = qf.practice ? 'Start de echte ronde →' : (qf.index === qf.questions.length - 1 ? 'Bekijk scorebord →' : 'Volgende vraag →');
     document.getElementById('r1-wait-reveal-msg').style.display = Session.isHost ? 'none' : 'block';
   }
 }
@@ -1950,8 +2028,8 @@ async function submitQFGuess(name) {
   const qf = latestLobby.quickfire;
   const prevQF = (qf.answers || {})[Session.playerId];
   if (qf.revealed || (prevQF && prevQF.guess === name)) return;
-  renderQuickFire(localGuess('qf_' + qf.index, name));
-  try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name, qf.index)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
+  renderQuickFire(localGuess((qf.bucket || 'qf_') + qf.index, name));
+  try { await withRetry(() => GameOps.submitQFGuess(Session.code, Session.playerId, name, qf.index, qf.bucket)); } catch (e) { /* blijft lokaal zichtbaar; volgende snapshot corrigeert indien nodig */ }
 }
 
 async function hostRevealQF() {
@@ -1973,6 +2051,7 @@ async function hostNextQF() {
   qfNextInFlight = true;
   try {
     const qf = latestLobby.quickfire;
+    if (qf.practice) { await hostStartRound1(); return; }
     const nextIndex = qf.index + 1;
     if (nextIndex >= qf.questions.length) {
       await withRetry(() => GameOps.setPhase(Session.code, 'quickfire-score'));
@@ -2114,6 +2193,8 @@ function renderPhotoRound(lobby) {
     wrap.appendChild(d);
   });
   setPickStatus('r2-players', { myGuess, revealed: pr.revealed, isCorrectGuess: !!myGuess && myGuess.guess === photo.player, isOwnItem: !!me && me.name === photo.player });
+  setPickCount('r2-players', pr.answers, lobby, !pr.revealed);
+  document.getElementById('r2-reveal-now-btn').style.display = (Session.isHost && !pr.revealed) ? 'block' : 'none';
 
   const nb = document.getElementById('r2-next-btn');
   if (pr.revealed) {
@@ -2461,7 +2542,7 @@ function renderVerhoor(lobby) {
 
   if (v.index !== lastSpokenVerhoorIndex) {
     lastSpokenVerhoorIndex = v.index;
-    if (Session.isHost) speakConfession(q.text);
+    if (Session.isHost && !tvActive(lobby)) speakConfession(q.text);
     clearInterval(verhoorCountdownTimer);
     verhoorCountdownTimer = setInterval(() => tickVerhoorCountdown(), 200);
     tickVerhoorCountdown();
@@ -2485,6 +2566,8 @@ function renderVerhoor(lobby) {
     wrap.appendChild(d);
   });
   setPickStatus('r3-answers', { myGuess, revealed: v.revealed, isCorrectGuess: !!myGuess && myGuess.guess === q.playerId, isOwnItem: q.playerId === Session.playerId });
+  setPickCount('r3-answers', v.answers, lobby, !v.revealed);
+  document.getElementById('r3-reveal-now-btn').style.display = (Session.isHost && !v.revealed) ? 'block' : 'none';
 
   const revealBox = document.getElementById('r3-reveal');
   revealBox.style.display = v.revealed ? 'block' : 'none';
@@ -2718,7 +2801,7 @@ function renderSoundtrack(lobby) {
     // Auto-play for the host as soon as a new song comes up — no manual
     // tap needed. The button stays available as a fallback in case the
     // browser blocks autoplay, or someone wants to replay the fragment.
-    if (Session.isHost && st.stage === 'guessing' && track.trackId) hostPlaySoundtrack();
+    if (Session.isHost && st.stage === 'guessing' && track.trackId && !tvActive(lobby)) hostPlaySoundtrack();
     // Eenmalig per nummer bepalen, anders schudden de knoppen door elkaar
     // bij elke her-render.
     soundtrackOptionsCache = pickAnswerOptions(st.players, track.playerId, (p) => p.id, 'st' + st.index);
@@ -2731,7 +2814,11 @@ function renderSoundtrack(lobby) {
   const alreadyPlayed = soundtrackPlayedForIndex === st.index;
   const playBtn = document.getElementById('st-host-play-btn');
   playBtn.style.display = (Session.isHost && st.stage === 'guessing' && track.trackId) ? 'block' : 'none';
-  playBtn.textContent = alreadyPlayed ? '▶ Opnieuw afspelen' : '▶ Speel fragment af';
+  playBtn.textContent = tvActive(lobby) ? '▶ Toch hier afspelen' : (alreadyPlayed ? '▶ Opnieuw afspelen' : '▶ Speel fragment af');
+  let note = document.getElementById('st-tv-note');
+  if (!note) { note = document.createElement('div'); note.id = 'st-tv-note'; note.className = 'host-audio-note'; playBtn.insertAdjacentElement('beforebegin', note); }
+  note.textContent = '🔊 Het fragment speelt op het tv-scherm.';
+  note.style.display = (Session.isHost && tvActive(lobby) && st.stage === 'guessing') ? 'block' : 'none';
 
   const myOwnerGuess = (st.ownerAnswers || {})[Session.playerId];
   const ownerWrap = document.getElementById('st-owner-players');
@@ -2752,6 +2839,8 @@ function renderSoundtrack(lobby) {
     });
   }
   setPickStatus('st-owner-players', { myGuess: st.stage === 'guessing' ? myOwnerGuess : null, revealed: false, changeable: true });
+  setPickCount('st-owner-players', st.ownerAnswers, lobby, st.stage === 'guessing');
+  setPickCount('st-drink-options', st.drinkAnswers, lobby, st.stage === 'drink' && !st.drinkRevealed);
 
   document.getElementById('st-drink-stage').style.display = st.stage === 'drink' ? 'block' : 'none';
   if (st.stage === 'drink') {
@@ -2782,7 +2871,13 @@ function renderSoundtrack(lobby) {
   }
   if (st.revealed) {
     const owner = st.players.find(p => p.id === track.playerId);
-    document.getElementById('st-reveal-card').innerHTML = `<div class="card-title">Dit was het nummer van ${esc(owner ? owner.name : '?')}!</div><div class="card-sub">${esc(track.trackName)}${track.artist ? ' — ' + esc(track.artist) : ''}</div>`;
+    let mine = '';
+    if (!hideMyPicks()) {
+      if (track.playerId === Session.playerId) mine = 'Dit was jouw eigen nummer.';
+      else if (!myOwnerGuess) mine = 'Je gokte niet.';
+      else mine = myOwnerGuess.guess === track.playerId ? '✓ Jij had het juist!' : '✗ Jij gokte fout.';
+    }
+    document.getElementById('st-reveal-card').innerHTML = `<div class="card-title">Dit was het nummer van ${esc(owner ? owner.name : '?')}!</div><div class="card-sub">${esc(track.trackName)}${track.artist ? ' — ' + esc(track.artist) : ''}</div>${mine ? `<div class="card-sub" style="margin-top:6px;font-weight:600;">${esc(mine)}</div>` : ''}`;
   }
 
   const nextBtn = document.getElementById('st-next-btn');
@@ -3285,6 +3380,7 @@ async function renderBiecht(lobby) {
       wrap.appendChild(d);
     });
     setPickStatus('biecht-guess-players', { myGuess, revealed: b.revealed, isCorrectGuess: !!myGuess && myGuess.guess === targetId, isOwnItem: targetId === Session.playerId });
+    setPickCount('biecht-guess-players', b.answers, lobby, !b.revealed);
 
     const revealBox = document.getElementById('biecht-reveal');
     revealBox.style.display = b.revealed ? 'block' : 'none';
@@ -3558,14 +3654,104 @@ function startTvMode(code, gameName) {
   document.getElementById('tv-main').innerHTML = '<div class="tv-sub">Verbinden met de lobby…</div>';
   let gotSnapshot = false;
   Backend.subscribe(code, (lobby) => {
+    if (!gotSnapshot) startTvHeartbeat(code);
     gotSnapshot = true;
     hydrateGuesses(lobby);
     latestLobby = lobby;
+    if (lobby.gameName) Session.gameName = lobby.gameName;
     prefetchPhotos(lobby);
     renderTv(lobby);
+    tvAudio(lobby);
   });
-  setTimeout(() => { if (!gotSnapshot) document.getElementById('tv-main').innerHTML = '<div class="tv-title">Lobby niet gevonden</div><div class="tv-sub">Controleer de tv-link bij de host.</div>'; }, 8000);
+  setTimeout(() => { if (!gotSnapshot) document.getElementById('tv-main').innerHTML = '<div class="tv-title">Lobby niet gevonden</div><div class="tv-sub">Controleer de code bij de host.</div>'; }, 8000);
   tvTimer = setInterval(tvTick, 200);
+  document.getElementById('tv-sound-btn').style.display = 'block';
+}
+
+// ── Geluid via het tv-scherm ──
+// Muziek (Ronde 4), het voorlezen van bekentenissen (Ronde 3) en de
+// verhalen (Ronde 5) spelen op het tv-scherm zodra er één gekoppeld is —
+// dan hoeft de host-telefoon niet meer op het grote scherm of de boxen.
+// Het tv-scherm meldt zich elke 30 s in de lobby (tvSeenAt); de host speelt
+// zelf enkel af als er geen tv actief is.
+const TV_ACTIVE_MS = 75 * 1000;
+function tvActive(lobby) { return !!(lobby && lobby.tvSeenAt && serverNow() - lobby.tvSeenAt < TV_ACTIVE_MS); }
+let tvHeartbeat = null;
+function startTvHeartbeat(code) {
+  const beat = () => { Backend.fastSet(code, 'tvSeenAt', serverNow()).catch(() => {}); };
+  beat();
+  clearInterval(tvHeartbeat);
+  tvHeartbeat = setInterval(beat, 30000);
+}
+let tvAudioUnlocked = false;
+let tvAudioKey = '';
+function unlockTvAudio() {
+  tvAudioUnlocked = true;
+  document.getElementById('tv-sound-btn').style.display = 'none';
+  try { if (window.speechSynthesis) window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch (e) { /* negeren */ }
+  try { const a = document.getElementById('tv-audio'); a.muted = true; a.play().catch(() => {}); a.pause(); a.muted = false; } catch (e) { /* negeren */ }
+  if (typeof loadYouTubeIframeApi === 'function' && typeof youtubeConfigured === 'function' && youtubeConfigured()) loadYouTubeIframeApi();
+  tvAudioKey = '';
+  if (latestLobby) tvAudio(latestLobby);
+}
+function tvStopAudio() {
+  if (typeof stopYouTubePlayback === 'function') stopYouTubePlayback();
+  document.getElementById('tv-yt-wrap').style.display = 'none';
+  const a = document.getElementById('tv-audio');
+  try { a.pause(); } catch (e) { /* negeren */ }
+}
+function tvAudio(lobby) {
+  if (!tvAudioUnlocked) return;
+  let key = '';
+  let play = null;
+  if (lobby.phase === 'verhoor-active' && lobby.verhoor && !lobby.verhoor.revealed) {
+    const v = lobby.verhoor;
+    key = 'vh' + v.index + '@' + v.questionStartAt;
+    play = () => speakConfession(v.list[v.index].text);
+  } else if (lobby.phase === 'soundtrack-active' && lobby.soundtrack && lobby.soundtrack.stage === 'guessing') {
+    const st = lobby.soundtrack; const track = st.list[st.index];
+    key = 'st' + st.index;
+    if (track.trackId) play = () => { document.getElementById('tv-yt-wrap').style.display = 'block'; playYouTubeTrack(track.trackId, 'tv-yt'); };
+  } else if (lobby.phase === 'soundtrack-active' && lobby.soundtrack) {
+    key = 'st' + lobby.soundtrack.index; // zelfde nummer: gewoon laten doorspelen tijdens de drankje-vraag
+  } else if (lobby.phase === 'biecht-active' && lobby.biecht && lobby.biecht.stage === 'playback') {
+    const b = lobby.biecht; const targetId = b.order[b.index];
+    key = 'bc' + b.index;
+    play = () => Backend.getVoice(lobby.code, targetId).then((url) => {
+      if (!url || tvAudioKey !== key) return;
+      const a = document.getElementById('tv-audio'); a.src = url; a.play().catch(() => {});
+    });
+  }
+  if (key === tvAudioKey) return;
+  tvAudioKey = key;
+  tvStopAudio();
+  if (play) play();
+}
+
+// QR-code op het tv-scherm om mee te doen (lib pas laden in tv-modus).
+let qrLibPromise = null;
+let tvQrSvg = '';
+function ensureQrLib() {
+  if (window.qrcode) return Promise.resolve();
+  if (!qrLibPromise) qrLibPromise = new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+    sc.onload = resolve; sc.onerror = reject;
+    document.head.appendChild(sc);
+  });
+  return qrLibPromise;
+}
+function fillTvQr() {
+  const el = document.getElementById('tv-qr');
+  if (!el) return;
+  if (tvQrSvg) { el.innerHTML = tvQrSvg; el.style.display = 'inline-block'; return; }
+  const url = buildInviteUrl();
+  if (!url) return;
+  ensureQrLib().then(() => {
+    const qr = window.qrcode(0, 'M'); qr.addData(url); qr.make();
+    tvQrSvg = qr.createSvgTag({ cellSize: 6, margin: 0, scalable: true });
+    fillTvQr();
+  }).catch(() => { /* geen QR — de code staat er ook gewoon */ });
 }
 
 function tvBoard(lobby) {
@@ -3596,8 +3782,10 @@ function renderTv(lobby) {
   if (ph === 'lobby') {
     const done = lobby.players.filter(p => p.dossierDone).length;
     h = `<div class="tv-kicker">Doe mee</div>
+      <div class="tv-join-row"><div class="tv-qr" id="tv-qr" style="display:none;"></div><div>
+      <div class="tv-sub">Scan de QR-code, of surf naar</div>
       <div class="tv-title">${esc(buildPlainGameUrl().replace(/^https?:\/\//, ''))}</div>
-      <div class="tv-sub">Code: <strong style="color:var(--accent2);">${esc(lobby.code)}</strong> · Spelnaam: <strong>${esc(lobby.gameName || '')}</strong></div>
+      <div class="tv-sub">Code: <strong style="color:var(--accent2);">${esc(lobby.code)}</strong> · Spelnaam: <strong>${esc(lobby.gameName || '')}</strong></div></div></div>
       <div class="tv-players">${lobby.players.map(p => `<span class="pill ${p.dossierDone ? 'done' : ''}">${esc(p.name)}${p.dossierDone ? ' ✓' : ''}</span>`).join('')}</div>
       <div class="tv-small">${done} van ${lobby.players.length} dossiers klaar</div>`;
   } else if (TV_INTROS[ph]) {
@@ -3605,7 +3793,7 @@ function renderTv(lobby) {
     h = `<div class="tv-kicker">${k}</div><div class="tv-title">${esc(t)}</div><div class="tv-sub">${esc(sub)}</div>`;
   } else if (ph === 'quickfire-active' && lobby.quickfire) {
     const qf = lobby.quickfire; const q = qf.questions[qf.index];
-    h = `<div class="tv-kicker">Ronde 1 · Vraag ${qf.index + 1} van ${qf.questions.length}</div>
+    h = `<div class="tv-kicker">${qf.practice ? 'Proefvraag — telt niet mee' : `Ronde 1 · Vraag ${qf.index + 1} van ${qf.questions.length}`}</div>
       <div class="tv-sub">${esc(q.label)}</div><div class="tv-quote">"${esc(q.answerText)}"</div>`;
     if (qf.revealed) {
       const right = Object.entries(qf.answers || {}).filter(([id, a]) => a.guess === q.correctPlayer).map(([id]) => (lobby.players.find(p => p.id === id) || {}).name).filter(n => n && n !== q.correctPlayer);
@@ -3670,6 +3858,7 @@ function renderTv(lobby) {
     h = `<div class="tv-title">Even geduld…</div>`;
   }
   main.innerHTML = h;
+  if (ph === 'lobby') fillTvQr();
   tvTick();
 }
 
@@ -3886,6 +4075,7 @@ function leaveAfterFinal() {
 // geschiedenis, ...) op nul — anders denkt een tweede potje dat vraag 1
 // "al getoond" is.
 function resetPerGameState() {
+  autoSubmitDone = false;
   lastRenderedQFIndex = -1; lastFlashedQFIndex = -1; qfNextBtnReady = {}; qfHistory = [];
   lastRenderedPhotoIndex = -1; lastFlashedPhotoIndex = -1; photoNextBtnReady = {}; photoHistory = [];
   lastSpokenVerhoorIndex = -1; lastFlashedVerhoorIndex = -1; verhoorNextBtnReady = {}; verhoorHistory = [];

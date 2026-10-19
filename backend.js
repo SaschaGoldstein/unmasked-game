@@ -445,7 +445,7 @@ function bucketValues(bucket) {
 }
 function hydrateGuesses(lobby) {
   if (!lobby) return lobby;
-  if (lobby.quickfire) lobby.quickfire.answers = guessBucket(lobby, 'qf_' + lobby.quickfire.index);
+  if (lobby.quickfire) lobby.quickfire.answers = guessBucket(lobby, (lobby.quickfire.bucket || 'qf_') + lobby.quickfire.index);
   if (lobby.photoRound) lobby.photoRound.answers = guessBucket(lobby, 'pr_' + lobby.photoRound.index);
   if (lobby.verhoor) lobby.verhoor.answers = guessBucket(lobby, 'vh_' + lobby.verhoor.index);
   if (lobby.soundtrack) {
@@ -563,6 +563,8 @@ async function revealQuickfire(code, index, secondsAllowed) {
     const qf = lobby.quickfire;
     if (!qf || qf.index !== index || qf.revealed) return;
     const q = qf.questions[qf.index];
+    // Proefvraag: enkel onthullen, geen punten.
+    if (qf.practice) { qf.revealed = true; return; }
     let caught = false;
     for (const [voterId, a] of Object.entries(qf.answers || {})) {
       const voter = findPlayer(lobby, voterId);
@@ -583,7 +585,7 @@ async function revealQuickfire(code, index, secondsAllowed) {
 // Elke gok draagt de vraagindex mee: komt een trage gok pas aan nadat de
 // vraag al onthuld is of de host al verder ging, dan wordt hij genegeerd
 // in plaats van stilletjes bij de VOLGENDE vraag te belanden.
-async function submitQFGuess(code, playerId, guess, index) { return submitGuess(code, 'qf_' + index, playerId, guess); }
+async function submitQFGuess(code, playerId, guess, index, bucket) { return submitGuess(code, (bucket || 'qf_') + index, playerId, guess); }
 
 async function setPhotoRound(code, photoRoundState) {
   return Backend.updateLobby(code, (lobby) => { lobby.photoRound = photoRoundState; });
